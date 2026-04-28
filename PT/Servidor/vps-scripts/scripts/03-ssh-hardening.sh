@@ -189,7 +189,31 @@ info "Abrindo porta ${SSH_PORT} no UFW antes de reiniciar o SSH..."
 ufw allow "${SSH_PORT}/tcp" comment 'SSH' 2>/dev/null || true
 
 info "Reiniciando SSH..."
-systemctl restart sshd
+# Ubuntu 24.04 usa socket activation: ssh.socket controla a porta,
+# não o sshd_config. Sem sobrescrever o socket, o SSH fica na 22
+# mesmo com Port 2222 no sshd_config.
+if systemctl is-active --quiet ssh.socket 2>/dev/null || \
+   systemctl list-units --full -all 2>/dev/null | grep -q "ssh.socket"; then
+    # Ubuntu 24.04: ssh.socket controla a porta. Sem declarar 0.0.0.0 explicitamente
+    # o socket escuta só em IPv6, recusando conexões IPv4.
+    info "Socket activation detectado — configurando porta ${SSH_PORT} em IPv4 e IPv6..."
+    mkdir -p /etc/systemd/system/ssh.socket.d
+    cat > /etc/systemd/system/ssh.socket.d/override.conf <<EOF
+[Socket]
+ListenStream=
+ListenStream=0.0.0.0:${SSH_PORT}
+ListenStream=[::]:${SSH_PORT}
+EOF
+    systemctl daemon-reload
+    systemctl restart ssh.socket
+    systemctl restart ssh
+else
+    if systemctl list-units --full -all | grep -q "sshd.service"; then
+        systemctl restart sshd
+    else
+        systemctl restart ssh
+    fi
+fi
 
 log "SSH escutando na porta $SSH_PORT."
 echo
