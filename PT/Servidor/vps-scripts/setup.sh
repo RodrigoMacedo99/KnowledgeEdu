@@ -1,6 +1,6 @@
 #!/bin/bash
 # VPS Setup Manager — orquestrador principal
-# Baseado em VPS_SETUP.md | Ubuntu 22.04 LTS
+# Baseado em VPS_SETUP.md | Ubuntu 24.04 LTS
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/lib/common.sh"
@@ -54,7 +54,7 @@ show_menu() {
     clear
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║              VPS SETUP MANAGER — Ubuntu 22.04 LTS           ║"
+    echo "║              VPS SETUP MANAGER — Ubuntu 24.04 LTS           ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
     echo -e "  ${BOLD}Setup completo (etapas 1–14):${RESET}"

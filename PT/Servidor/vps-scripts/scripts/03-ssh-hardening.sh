@@ -31,11 +31,10 @@ apply_setting() {
 info "Aplicando configurações de segurança no sshd_config..."
 
 apply_setting "Port"                          "$SSH_PORT"
-apply_setting "Protocol"                      "2"
 apply_setting "PermitRootLogin"               "no"
 apply_setting "PasswordAuthentication"        "no"
 apply_setting "PermitEmptyPasswords"          "no"
-apply_setting "ChallengeResponseAuthentication" "no"
+apply_setting "KbdInteractiveAuthentication"  "no"
 apply_setting "UsePAM"                        "yes"
 apply_setting "PubkeyAuthentication"          "yes"
 apply_setting "AuthorizedKeysFile"            ".ssh/authorized_keys"
@@ -182,6 +181,12 @@ fi
 # ── Validar e reiniciar ────────────────────────────────────────────────────
 info "Validando configuração..."
 sshd -t || die "Configuração inválida — restaure o backup em $BACKUP"
+
+# Garante que a porta nova está liberada no UFW ANTES de reiniciar o sshd.
+# Se o sshd reiniciar antes desta regra existir e o UFW já estiver ativo,
+# a porta 22 some e a nova ainda não existe — lockout garantido.
+info "Abrindo porta ${SSH_PORT} no UFW antes de reiniciar o SSH..."
+ufw allow "${SSH_PORT}/tcp" comment 'SSH' 2>/dev/null || true
 
 info "Reiniciando SSH..."
 systemctl restart sshd
