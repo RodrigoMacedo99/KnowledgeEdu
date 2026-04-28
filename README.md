@@ -27,8 +27,12 @@ Cada documento aqui foi escrito com a mentalidade de quem quer entender de verda
 KnowledgeEdu/
 ├── PT/                        # Documentação em Português
 │   ├── Agentes/               # Agentes de IA — construção e orquestração
+│   ├── Arquitetura/           # Arquitetura de software: DDD, padrões e clean architecture
 │   ├── CI-CD/                 # Integração e entrega contínua com GitHub Actions
+│   ├── Cyberseguranca/        # Segurança aplicada para dev full stack/full cycle
 │   ├── Docker/                # Containers do zero ao deploy em produção
+│   ├── IoT/                   # Internet das Coisas: camadas, protocolos e configuração ponta a ponta
+│   ├── MachineLearning/       # ML do básico ao avançado: estatística, modelos, CV, séries e LLM
 │   └── Servidor/              # Infraestrutura VPS — hardening, Nginx, SSL
 │
 └── EN/                        # Documentação em English (em construção)
@@ -44,7 +48,11 @@ KnowledgeEdu/
 |---|---|---|
 | `Servidor` | [`VPS_SETUP.md`](PT/Servidor/VPS_SETUP.md) | Configurar uma VPS do zero: SSH, firewall, Nginx, SSL, Docker e segurança |
 | `Servidor` | [`DEPLOY.md`](PT/Servidor/DEPLOY.md) | Subir backend + banco em produção com Docker Compose e CD automático |
+| `Arquitetura` | [`ARQUITETURA_DE_SOFTWARE.md`](PT/Arquitetura/ARQUITETURA_DE_SOFTWARE.md) | Fundamentos de arquitetura de software para full stack/full cycle com UML e exemplos práticos em Python |
+| `MachineLearning` | [`MACHINE_LEARNING.md`](PT/MachineLearning/MACHINE_LEARNING.md) | Trilha de ML do básico ao avançado: dedução de fórmulas, regressão, árvore, SVM, estatística, visão computacional, séries temporais, LLM e MLOps |
+| `IoT` | [`IOT.md`](PT/IoT/IOT.md) | Arquitetura IoT com camadas, protocolos de comunicação e configuração prática de microcontrolador e servidor |
 | `Docker` | [`DOCKER.md`](PT/Docker/DOCKER.md) | Containers, imagens, volumes, redes, Docker Compose e boas práticas |
+| `Cyberseguranca` | [`CYBERSEGURANCA.md`](PT/Cyberseguranca/CYBERSEGURANCA.md) | Fundamentos de cybersegurança para dev full stack/full cycle: app, API, CI/CD, Docker e operação |
 | `CI-CD` | [`GITHUB_ACTIONS.md`](PT/CI-CD/GITHUB_ACTIONS.md) | Pipelines CI/CD com GitHub Actions: lint, testes, build e deploy automático |
 | `Agentes` | [`AGENTES_IA.md`](PT/Agentes/AGENTES_IA.md) | Agentes de IA: conceitos, construção com Claude API e orquestração de tarefas |
 
@@ -66,10 +74,14 @@ Sugestão de ordem para quem está começando:
 
 ```
 1. Docker/DOCKER.md
-2. Servidor/VPS_SETUP.md
-3. Servidor/DEPLOY.md
-4. CI-CD/GITHUB_ACTIONS.md
-5. Agentes/AGENTES_IA.md
+2. Arquitetura/ARQUITETURA_DE_SOFTWARE.md
+3. MachineLearning/MACHINE_LEARNING.md
+4. IoT/IOT.md
+5. Servidor/VPS_SETUP.md
+6. Cyberseguranca/CYBERSEGURANCA.md
+7. Servidor/DEPLOY.md
+8. CI-CD/GITHUB_ACTIONS.md
+9. Agentes/AGENTES_IA.md
 ```
 
 ---

@@ -32,6 +32,8 @@ Antes de começar, certifique-se de ter em mãos:
 | IP da VPS | Endereço IP público da máquina |
 | Repositórios | Acesso ao GitHub da organização `sql-challenge` |
 
+> **Recomendado antes do deploy:** aplicar o hardening base do guia [`VPS_SETUP.md`](./VPS_SETUP.md) (SSH, UFW, Fail2Ban, Nginx e atualização automática de segurança).
+
 ---
 
 ## 2. Acesso inicial à VPS
@@ -176,8 +178,10 @@ A saída esperada:
 ```
 NAME                  STATUS          PORTS
 sql-challenge-api     Up              0.0.0.0:3000->3000/tcp
-sql-challenge-db      Up (healthy)    0.0.0.0:5432->5432/tcp
+sql-challenge-db      Up (healthy)    127.0.0.1:5432->5432/tcp
 ```
+
+> Em produção, prefira expor somente `80/443` no Nginx e manter API/DB sem exposição pública direta.
 
 ### 6.3 Verificar os logs do backend
 
@@ -395,7 +399,25 @@ Acesse o repositório no GitHub → **Settings** → **Secrets and variables** �
 | `MAIL_USERNAME` | Email Gmail remetente para notificações de CI |
 | `MAIL_PASSWORD` | Senha de app do Gmail |
 
-### 10.3 Testar o CD
+### 10.3 Endurecer o acesso SSH do GitHub Actions
+
+No `~/.ssh/authorized_keys` da VPS, restrinja a chave de deploy com opções:
+
+```text
+from="IP_FIXO_OU_FAIXA_CONFIÁVEL",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA...
+```
+
+- `from=` limita origem da chave (ideal com runner self-hosted de egress fixo).
+- `no-port-forwarding` e `no-agent-forwarding` reduzem o abuso da sessão.
+- `no-pty` evita shell interativo.
+
+Também valide o host no workflow com `known_hosts` (evita MITM):
+
+```bash
+ssh-keyscan -H IP_DA_VPS >> ~/.ssh/known_hosts
+```
+
+### 10.4 Testar o CD
 
 Faça um push na `main` e acompanhe em **Actions** no GitHub. O pipeline deve:
 1. Conectar à VPS via SSH
@@ -483,7 +505,7 @@ Causas comuns:
 Verifique se a porta está exposta:
 ```bash
 docker compose ps
-# A coluna PORTS deve mostrar 0.0.0.0:5432->5432/tcp
+# Em produção segura, a coluna PORTS deve mostrar 127.0.0.1:5432->5432/tcp
 ```
 
 Verifique o firewall:

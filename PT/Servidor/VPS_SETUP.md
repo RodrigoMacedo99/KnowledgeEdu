@@ -1,6 +1,6 @@
 # Configuração de Infraestrutura VPS do Zero
 
-> Guia completo com hardening, firewall, isolamento por usuário, múltiplos domínios, SSL e boas práticas de segurança para Ubuntu 22.04 LTS.
+> Guia completo com hardening, firewall, isolamento por usuário, múltiplos domínios, SSL e boas práticas de segurança para Ubuntu 24.04 LTS.
 
 ---
 
@@ -19,8 +19,9 @@
 11. [Segurança do banco de dados PostgreSQL](#11-segurança-do-banco-de-dados-postgresql)
 12. [Atualizações automáticas de segurança](#12-atualizações-automáticas-de-segurança)
 13. [Monitoramento e logs](#13-monitoramento-e-logs)
-14. [Adicionar um novo projeto](#14-adicionar-um-novo-projeto)
-15. [Resumo: portas, usuários e domínios](#15-resumo-portas-usuários-e-domínios)
+14. [Hardening contínuo do servidor](#14-hardening-contínuo-do-servidor)
+15. [Adicionar um novo projeto](#15-adicionar-um-novo-projeto)
+16. [Resumo: portas, usuários e domínios](#16-resumo-portas-usuários-e-domínios)
 
 ---
 
@@ -35,6 +36,18 @@ ssh root@IP_DA_VPS
 - `ssh` — abre uma conexão segura com a VPS via protocolo SSH
 - `root` — usuário com permissão total na máquina (usado só neste primeiro acesso)
 - `IP_DA_VPS` — substitua pelo endereço IP público fornecido pelo provedor da VPS
+
+### 1.2 Iniciar uma sessão screen (obrigatório)
+
+```bash
+screen -S setup
+```
+
+- `screen` — multiplexador de terminal: mantém processos rodando mesmo se a conexão SSH cair
+- `-S setup` — nomeia a sessão como "setup" para fácil identificação
+- Se a conexão cair durante qualquer etapa, reconecte e rode `screen -r setup` para retomar exatamente onde parou
+
+> **Por que isso importa:** sem o screen, uma queda de conexão no meio de um passo longo (como `apt upgrade`) pode deixar o sistema em estado inconsistente ou bloquear o acesso.
 
 ### 1.2 Atualizar todos os pacotes do sistema
 
@@ -169,14 +182,13 @@ sudo nano /etc/ssh/sshd_config
 
 - `/etc/ssh/sshd_config` — arquivo de configuração principal do servidor SSH
 
+> **Ubuntu 24.04 / OpenSSH 9.x:** as diretivas `Protocol` e `ChallengeResponseAuthentication` foram removidas. Usar qualquer uma delas impede o sshd de reiniciar. Use a configuração abaixo.
+
 Configurações e o que cada uma faz:
 
 ```
 # Troca a porta padrão (22) para dificultar scans automáticos da internet
 Port 2222
-
-# Força uso do protocolo SSH versão 2 (mais seguro que a versão 1)
-Protocol 2
 
 # Impede login direto como root via SSH
 PermitRootLogin no
@@ -187,8 +199,8 @@ PasswordAuthentication no
 # Impede login com senha em branco
 PermitEmptyPasswords no
 
-# Desabilita autenticação por desafio-resposta (outro método de senha)
-ChallengeResponseAuthentication no
+# Substituto de ChallengeResponseAuthentication (removida no OpenSSH 9.x)
+KbdInteractiveAuthentication no
 
 # Mantém integração com PAM (sistema de autenticação do Linux)
 UsePAM yes
@@ -236,16 +248,34 @@ ClientAliveInterval 300
 ClientAliveCountMax 2
 ```
 
-### 3.4 Aplicar as mudanças
+### 3.4 Validar e aplicar as mudanças com segurança
 
 ```bash
+# 1. Valida a sintaxe ANTES de reiniciar — evita lockout por erro de configuração
+sudo sshd -t
+```
+
+- `sshd -t` — modo de teste: lê e valida o arquivo sem iniciar o serviço; qualquer erro de sintaxe aparece aqui
+- Se `sshd -t` retornar erros, corrija o arquivo antes de continuar
+
+```bash
+# 2. Libera a nova porta no UFW ANTES de reiniciar o sshd
+#    (mesmo que o UFW ainda não esteja ativo, a regra já estará lá quando for)
+sudo ufw allow 2222/tcp comment 'SSH'
+
+# 3. Só agora reinicia o sshd
 sudo systemctl restart sshd
 ```
 
-- `systemctl restart` — reinicia o serviço SSH para aplicar as novas configurações
-- `sshd` — nome do serviço do servidor SSH
+> **Por que essa ordem importa:** se você reiniciar o sshd antes de abrir a porta 2222, e o UFW já estiver ativo (ou for ativado na etapa 5 com a porta 22 bloqueada), você perde o acesso. Abrindo a regra primeiro, o acesso está garantido independente da ordem.
 
-> **Atenção:** Só feche o terminal atual após confirmar que consegue conectar com o novo comando.
+```bash
+# 4. Abra um NOVO terminal e teste antes de fechar o atual
+ssh -p 2222 admin@IP_DA_VPS
+sudo whoami   # deve retornar: root
+```
+
+> Só feche o terminal original após confirmar que o novo acesso funciona.
 
 ### 3.5 Criar atalho de conexão no seu computador
 
@@ -1030,7 +1060,72 @@ du -sh /opt/apps/*
 
 ---
 
-## 14. Adicionar um novo projeto
+## 14. Hardening contínuo do servidor
+
+Depois da configuração inicial, segurança vira rotina operacional. Este bloco adiciona controles importantes para reduzir superfície de ataque e melhorar rastreabilidade.
+
+### 14.1 Endurecer parâmetros de rede do kernel
+
+```bash
+sudo nano /etc/sysctl.d/99-security-hardening.conf
+```
+
+```conf
+# Mitiga spoofing de IP e tráfego malformado
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+net.ipv4.tcp_syncookies=1
+net.ipv4.icmp_echo_ignore_broadcasts=1
+
+# Desativa redirects ICMP (evita manipulação de rotas)
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+```
+
+```bash
+sudo sysctl --system
+```
+
+### 14.2 Auditar uso de privilégios (sudo)
+
+```bash
+sudo visudo
+```
+
+```conf
+# Exige reautenticação frequente para comandos privilegiados
+Defaults timestamp_timeout=5
+
+# Registra comandos sudo em arquivo dedicado
+Defaults logfile="/var/log/sudo.log"
+```
+
+```bash
+sudo chmod 600 /var/log/sudo.log
+```
+
+### 14.3 Controle de integridade de arquivos com AIDE
+
+```bash
+sudo apt install -y aide
+sudo aideinit
+```
+
+> O primeiro baseline deve ser gerado quando o servidor estiver em estado limpo. Depois disso, rode verificações periódicas e investigue qualquer alteração inesperada em `/etc`, binários e scripts de deploy.
+
+### 14.4 Rotina mínima de segurança (semanal)
+
+- Revisar usuários com shell ativo: `getent passwd | grep -E '/bin/bash|/bin/sh'`
+- Revisar chaves autorizadas em `~/.ssh/authorized_keys`
+- Conferir portas expostas: `sudo ss -tulpen`
+- Validar bans do Fail2Ban: `sudo fail2ban-client status sshd`
+- Verificar vulnerabilidades de imagens Docker usadas no deploy (scanner no pipeline)
+
+---
+
+## 15. Adicionar um novo projeto
 
 ```bash
 # ─── 1. Usuário de serviço ─────────────────────────────────────────────────
@@ -1072,7 +1167,7 @@ sudo crontab -u NOME_PROJETO -e
 
 ---
 
-## 15. Resumo: portas, usuários e domínios
+## 16. Resumo: portas, usuários e domínios
 
 ### Projetos
 
@@ -1111,4 +1206,4 @@ Nginx (reverse proxy)
 
 ---
 
-> Escrito para **Ubuntu 22.04 LTS**.
+> Escrito para **Ubuntu 24.04 LTS**.

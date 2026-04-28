@@ -17,7 +17,8 @@
 9. [Variáveis de ambiente e arquivos .env](#9-variáveis-de-ambiente-e-arquivos-env)
 10. [Multi-stage build — imagens menores e mais seguras](#10-multi-stage-build--imagens-menores-e-mais-seguras)
 11. [Boas práticas de produção](#11-boas-práticas-de-produção)
-12. [Comandos de referência rápida](#12-comandos-de-referência-rápida)
+12. [GitOps com Docker](#12-gitops-com-docker)
+13. [Comandos de referência rápida](#13-comandos-de-referência-rápida)
 
 ---
 
@@ -628,7 +629,73 @@ docker system df
 
 ---
 
-## 12. Comandos de referência rápida
+## 12. GitOps com Docker
+
+GitOps aplica o princípio de que **o Git é a fonte de verdade da infraestrutura**. Em Docker, isso significa que a versão da imagem, o `docker-compose.yml` e as regras de deploy ficam versionadas e auditáveis em repositórios.
+
+### 12.1 Fluxo recomendado (imagem imutável + repositório de infraestrutura)
+
+1. O pipeline de CI gera a imagem com tag imutável (ex.: SHA do commit):
+```bash
+docker build -t ghcr.io/org/minha-api:${GITHUB_SHA} .
+docker push ghcr.io/org/minha-api:${GITHUB_SHA}
+```
+2. Um repositório de infraestrutura (`infra-live`) guarda o `docker-compose.yml` de produção.
+3. O deploy ocorre via PR que atualiza apenas a tag da imagem:
+```yaml
+services:
+  api:
+    image: ghcr.io/org/minha-api:9c2a6b0
+```
+4. Após merge na `main` do repositório de infraestrutura, o servidor sincroniza o estado e aplica:
+```bash
+docker compose pull
+docker compose up -d --remove-orphans
+```
+
+### 12.2 Estrutura mínima de repositórios
+
+```text
+app-repo/
+  └── Dockerfile
+
+infra-live/
+  ├── sql-challenge/
+  │   ├── docker-compose.yml
+  │   └── .env.example
+  └── environments/
+      ├── staging/
+      └── production/
+```
+
+### 12.3 Segurança no fluxo GitOps
+
+- Use **tags imutáveis** (SHA), nunca `latest`.
+- Proteja a branch principal com **review obrigatório**.
+- Use **Deploy Key somente leitura** no servidor para o repositório de infraestrutura.
+- Restrinja segredos a runtime (`.env` no servidor, secret manager, ou variáveis injetadas no pipeline), sem versionar credenciais no Git.
+- Prefira aprovação explícita para produção (`environment protection rules`) antes do merge/deploy.
+
+### 12.4 Exemplo de sincronização pull-based com Docker Compose
+
+```bash
+# /opt/gitops/sync.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /opt/infra-live/sql-challenge
+git fetch origin
+git reset --hard origin/main
+docker compose pull
+docker compose up -d --remove-orphans
+docker image prune -f
+```
+
+Execute esse script por `systemd timer` ou cron. Assim, o servidor sempre converge para o estado definido no Git, com histórico completo de quem alterou o quê e quando.
+
+---
+
+## 13. Comandos de referência rápida
 
 ### Imagens
 
