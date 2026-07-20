@@ -54,6 +54,20 @@ prompt() {
     printf -v "$var_name" '%s' "$value"
 }
 
+# Como prompt(), mas aceita ficar em branco — para campos onde vazio é uma
+# resposta válida (ex: "deixe vazio para pular"), em que exigir um valor
+# obrigaria o usuário a digitar algo só para satisfazer a validação.
+prompt_optional() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local default="${3:-}"
+    local display_default=""
+    [[ -n "$default" ]] && display_default=" [${default}]"
+    read -rp "$(echo -e "${CYAN}[?]${RESET} ${prompt_text}${display_default}: ")" value
+    value="${value:-$default}"
+    printf -v "$var_name" '%s' "$value"
+}
+
 prompt_secret() {
     local var_name="$1"
     local prompt_text="$2"

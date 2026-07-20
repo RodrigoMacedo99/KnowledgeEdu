@@ -28,6 +28,8 @@ declare -A STEP_NAMES=(
     [14]="Hardening contínuo do kernel e auditoria"
     [15]="Adicionar novo projeto"
     [16]="NTP — Sincronização de tempo (Chrony)"
+    [17]="Gerador de CI/CD (GitHub Actions) para um projeto"
+    [18]="Gerenciador de portas"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -47,6 +49,8 @@ declare -A STEP_SCRIPTS=(
     [14]="scripts/14-hardening.sh"
     [15]="scripts/15-new-project.sh"
     [16]="scripts/16-ntp.sh"
+    [17]="scripts/17-cicd-generator.sh"
+    [18]="scripts/18-port-manager.sh"
 )
 
 # ── Menu principal ─────────────────────────────────────────────────────────
@@ -57,11 +61,11 @@ show_menu() {
     echo "║              VPS SETUP MANAGER — Ubuntu 24.04 LTS           ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
-    echo -e "  ${BOLD}Setup completo (etapas 1–14):${RESET}"
+    echo -e "  ${BOLD}Setup completo (etapas 1–17):${RESET}"
     echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 16); do
+    for i in $(seq 1 18); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -103,14 +107,14 @@ run_step() {
 # ── Setup completo ────────────────────────────────────────────────────────
 run_full_setup() {
     echo
-    warn "O setup completo executará as etapas 1 a 14 em sequência."
+    warn "O setup completo executará as etapas 1 a 17 em sequência."
     warn "Você será solicitado a fornecer informações em cada etapa."
     echo
     confirm "Iniciar setup completo?" || return
 
-    for i in $(seq 1 16); do
+    for i in $(seq 1 17); do
         echo
-        echo -e "${BOLD}${CYAN}════ Etapa ${i}/14: ${STEP_NAMES[$i]} ════${RESET}"
+        echo -e "${BOLD}${CYAN}════ Etapa ${i}/17: ${STEP_NAMES[$i]} ════${RESET}"
         echo
         bash "${SCRIPT_DIR}/${STEP_SCRIPTS[$i]}"
         local exit_code=$?
@@ -128,6 +132,8 @@ run_full_setup() {
     echo -e "  • Edite os arquivos ${CYAN}.env${RESET} de cada projeto"
     echo -e "  • Suba os containers: ${CYAN}docker compose up --build -d${RESET}"
     echo -e "  • Use a etapa ${YELLOW}15${RESET} para adicionar novos projetos"
+    echo -e "  • Use a etapa ${YELLOW}17${RESET} para gerar o CI/CD (GitHub Actions) de um projeto"
+    echo -e "  • Use a etapa ${YELLOW}18${RESET} para consultar/gerenciar as portas reservadas na VPS"
     echo -e "  • Consulte o log em: ${CYAN}/var/log/vps-setup.log${RESET}"
     echo
 }
@@ -139,7 +145,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-5]) run_step "$choice" ;;
+        [1-9]|1[0-8]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

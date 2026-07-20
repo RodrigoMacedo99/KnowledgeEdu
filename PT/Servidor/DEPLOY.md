@@ -27,8 +27,8 @@ Antes de começar, certifique-se de ter em mãos:
 
 | Item | Descrição |
 |---|---|
-| VPS | Ubuntu 22.04 LTS ou superior (recomendado) |
-| Acesso SSH | Usuário com permissão sudo |
+| VPS | Ubuntu 24.04 LTS |
+| Acesso SSH | Usuário `admin` com permissão sudo, porta `2222` |
 | IP da VPS | Endereço IP público da máquina |
 | Repositórios | Acesso ao GitHub da organização `sql-challenge` |
 
@@ -41,13 +41,13 @@ Antes de começar, certifique-se de ter em mãos:
 Conecte à VPS pelo terminal do seu computador:
 
 ```bash
-ssh usuario@IP_DA_VPS
+ssh -p 2222 admin@IP_DA_VPS
 ```
 
-Se o acesso for por chave SSH:
+Se tiver o atalho configurado em `~/.ssh/config`:
 
 ```bash
-ssh -i /caminho/para/chave.pem usuario@IP_DA_VPS
+ssh vps
 ```
 
 Após o acesso, atualize o sistema:
@@ -90,36 +90,32 @@ Docker Compose version v2.x.x
 
 ## 4. Clonar os repositórios
 
-### 4.1 Backend
+Os repositórios ficam em `/opt/apps/sql-challenge/`, com o usuário de serviço `sqlchallenge` como dono (configurado na etapa 7 do VPS_SETUP).
 
 ```bash
-cd /home/$USER
-git clone https://github.com/sql-challenge/sql-challenge-backend.git
-cd sql-challenge-backend
-git checkout dev
+sudo -u sqlchallenge git clone https://github.com/sql-challenge/sql-challenge-backend.git /opt/apps/sql-challenge/backend
+
+sudo -u sqlchallenge git clone https://github.com/sql-challenge/sql-challenge-frontend.git /opt/apps/sql-challenge/frontend
+
+sudo -u sqlchallenge git clone https://github.com/sql-challenge/sql-challenge-modelagem_de_dados.git /opt/apps/sql-challenge/modelagem
 ```
 
-### 4.2 Modelagem de dados
-
-Os scripts SQL estão em um repositório separado. Clone-o também:
+Corrigir permissões após o clone:
 
 ```bash
-cd /home/$USER
-git clone https://github.com/sql-challenge/sql-challenge-modelagem_de_dados.git
-cd sql-challenge-modelagem_de_dados
-git checkout developer
+chown -R sqlchallenge:webapps /opt/apps/sql-challenge/
+find /opt/apps/sql-challenge -type d -exec chmod 750 {} \;
+find /opt/apps/sql-challenge -type f -exec chmod 640 {} \;
 ```
 
 ---
 
 ## 5. Configurar o ambiente (.env)
 
-Acesse a pasta do backend e crie o arquivo `.env` a partir do exemplo:
+O `.env` fica em `/opt/apps/sql-challenge/.env` com um link simbólico para dentro do backend (configurado na etapa 7 do VPS_SETUP). Para editar:
 
 ```bash
-cd /home/$USER/sql-challenge-backend
-cp .env.example .env
-nano .env
+sudo nano /opt/apps/sql-challenge/.env
 ```
 
 Preencha com os valores reais de produção:
@@ -161,7 +157,7 @@ Salve o arquivo: `Ctrl+O` → `Enter` → `Ctrl+X`
 ### 6.1 Build e inicialização
 
 ```bash
-cd /home/$USER/sql-challenge-backend
+cd /opt/apps/sql-challenge/backend
 docker compose up --build -d
 ```
 
@@ -207,7 +203,7 @@ Os scripts devem ser executados **na ordem abaixo**. Todos rodam dentro do conta
 
 ```bash
 docker exec -i sql-challenge-db psql -U challenge_user -d db_gestao \
-  < /home/$USER/sql-challenge-modelagem_de_dados/PostgreSQL/Script/gestão/ddl_structure.sql
+  < /opt/apps/sql-challenge/modelagem/PostgreSQL/Script/gestão/ddl_structure.sql
 ```
 
 O que esse script faz:
@@ -219,7 +215,7 @@ O que esse script faz:
 
 ```bash
 docker exec -i sql-challenge-db psql -U challenge_user -d db_gestao \
-  < "/home/$USER/sql-challenge-modelagem_de_dados/Games/magical world/ddl_game.sql"
+  < "/opt/apps/sql-challenge/modelagem/Games/magical world/ddl_game.sql"
 ```
 
 O que esse script faz:
@@ -229,7 +225,7 @@ O que esse script faz:
 
 ```bash
 docker exec -i sql-challenge-db psql -U challenge_user -d db_gestao \
-  < "/home/$USER/sql-challenge-modelagem_de_dados/Games/magical world/vw_ddl_game.sql"
+  < "/opt/apps/sql-challenge/modelagem/Games/magical world/vw_ddl_game.sql"
 ```
 
 O que esse script faz:
@@ -240,11 +236,11 @@ O que esse script faz:
 ```bash
 # Dados principais
 docker exec -i sql-challenge-db psql -U challenge_user -d db_gestao \
-  < "/home/$USER/sql-challenge-modelagem_de_dados/Games/magical world/dml_gama.sql"
+  < "/opt/apps/sql-challenge/modelagem/Games/magical world/dml_gama.sql"
 
 # Correções e patches
 docker exec -i sql-challenge-db psql -U challenge_user -d db_gestao \
-  < "/home/$USER/sql-challenge-modelagem_de_dados/Games/magical world/dml_gama_patch.sql"
+  < "/opt/apps/sql-challenge/modelagem/Games/magical world/dml_gama_patch.sql"
 ```
 
 O que esses scripts fazem:
@@ -255,7 +251,7 @@ O que esses scripts fazem:
 
 ```bash
 docker exec -i sql-challenge-db psql -U challenge_user -d db_gestao \
-  < /home/$USER/sql-challenge-modelagem_de_dados/PostgreSQL/Script/cadastro_games/dml_magical_world.sql
+  < /opt/apps/sql-challenge/modelagem/PostgreSQL/Script/cadastro_games/dml_magical_world.sql
 ```
 
 O que esse script faz:
