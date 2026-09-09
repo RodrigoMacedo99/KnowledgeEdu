@@ -1,0 +1,78 @@
+# EXEMPLO de compose.yml que VIVE NO REPOSITÓRIO do seu serviço (monorepo).
+# Descreve apenas a aplicação — SEM domínios, SEM TLS, SEM labels do Traefik.
+# Assim o mesmo repo roda igual na sua máquina e na VPS. A parte específica do
+# servidor (domínio, HTTPS, rede pública) entra por um compose.override.yml
+# gerado pela etapa 15 (ver compose.override.traefik.yml).
+#
+# Um serviço = vários containers. Aqui: web (frontend) + api (backend) +
+# worker (fila) + db (banco). Só web e api são públicos; worker e db ficam na
+# rede interna e nunca são alcançáveis de fora.
+
+services:
+  web:
+    build: ./web
+    restart: unless-stopped
+    env_file: [.env]
+    networks: [internal]
+    # Nenhuma porta publicada: quem expõe é o Traefik, pela rede 'edge' (override).
+    expose: ["80"]
+    depends_on: [api]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    env_file: [.env]
+    networks: [internal]
+    expose: ["3000"]
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  worker:
+    build: ./worker
+    restart: unless-stopped
+    env_file: [.env]
+    networks: [internal]      # sem porta, sem Traefik — processamento em background
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    env_file: [.env]
+    networks: [internal]      # NUNCA na rede 'edge' — banco não é público
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+volumes:
+  db-data:
+
+networks:
+  internal:
+    driver: bridge

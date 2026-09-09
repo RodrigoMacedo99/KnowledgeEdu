@@ -1,0 +1,65 @@
+# Configuração DINÂMICA do Traefik — pode ser editada em quente (watch: true).
+# Define os middlewares de segurança e as opções de TLS aplicados aos serviços.
+#
+# Copiado para: /opt/platform/edge/dynamic/security.yml
+
+http:
+  middlewares:
+    # ── Cabeçalhos de segurança (equivalente ao security-headers do Nginx) ──
+    security-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        # Remove cabeçalhos que revelam a stack.
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
+
+    # ── Rate limiting (protege endpoints públicos de abuso/força bruta) ─────
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+
+    # ── Compressão de resposta ──────────────────────────────────────────────
+    compression:
+      compress: {}
+
+    # ── Cadeia padrão aplicada aos serviços públicos ────────────────────────
+    secure-chain:
+      chain:
+        middlewares:
+          - security-headers
+          - rate-limit
+          - compression
+
+    # ── Allowlist de IP para o dashboard/observabilidade (ajuste os ranges) ─
+    # Restrinja ao IP do seu escritório/VPN. O padrão abaixo só libera redes
+    # privadas — combine com um túnel SSH para acessar com segurança.
+    admin-allowlist:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+# ── Opções de TLS globais (ciphers e versão mínima) ──────────────────────────
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305

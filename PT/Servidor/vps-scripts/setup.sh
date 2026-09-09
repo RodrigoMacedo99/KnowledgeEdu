@@ -19,17 +19,18 @@ declare -A STEP_NAMES=(
     [5]="Firewall (UFW)"
     [6]="Grupos e usuários por projeto"
     [7]="Estrutura de pastas e permissões"
-    [8]="Docker (instalação e configuração segura)"
-    [9]="Nginx como reverse proxy"
-    [10]="SSL com Let's Encrypt"
+    [8]="Docker (instalação, redes edge/observability, segurança)"
+    [9]="Edge proxy (Traefik) — porta de entrada dos serviços"
+    [10]="TLS/HTTPS (status e diagnóstico — automático via Traefik)"
     [11]="Segurança do PostgreSQL e backup"
     [12]="Atualizações automáticas de segurança"
     [13]="Monitoramento e logs"
     [14]="Hardening contínuo do kernel e auditoria"
-    [15]="Adicionar novo projeto"
+    [15]="Adicionar novo serviço (monorepo multi-container)"
     [16]="NTP — Sincronização de tempo (Chrony)"
-    [17]="Gerador de CI/CD (GitHub Actions) para um projeto"
+    [17]="Gerador de CI/CD (GitHub Actions) para um serviço"
     [18]="Gerenciador de portas"
+    [19]="Observabilidade (Prometheus, Grafana, Loki, Alloy)"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -41,7 +42,7 @@ declare -A STEP_SCRIPTS=(
     [6]="scripts/06-groups-users.sh"
     [7]="scripts/07-folder-structure.sh"
     [8]="scripts/08-docker.sh"
-    [9]="scripts/09-nginx.sh"
+    [9]="scripts/09-edge-proxy.sh"
     [10]="scripts/10-ssl.sh"
     [11]="scripts/11-postgres.sh"
     [12]="scripts/12-auto-updates.sh"
@@ -51,7 +52,13 @@ declare -A STEP_SCRIPTS=(
     [16]="scripts/16-ntp.sh"
     [17]="scripts/17-cicd-generator.sh"
     [18]="scripts/18-port-manager.sh"
+    [19]="scripts/19-observability.sh"
 )
+
+# Etapas que compõem o "setup completo" da infraestrutura base (na ordem).
+# As etapas 13 (monitor interativo), 15 (adicionar serviço), 17 (CI/CD) e 18
+# (portas) são sob demanda e ficam fora daqui.
+FULL_STEPS=(1 2 3 4 5 6 7 8 9 10 11 12 14 16 19)
 
 # ── Menu principal ─────────────────────────────────────────────────────────
 show_menu() {
@@ -61,11 +68,11 @@ show_menu() {
     echo "║              VPS SETUP MANAGER — Ubuntu 24.04 LTS           ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
-    echo -e "  ${BOLD}Setup completo (etapas 1–17):${RESET}"
-    echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência"
+    echo -e "  ${BOLD}Setup completo da infraestrutura base:${RESET}"
+    echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência (${FULL_STEPS[*]})"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 18); do
+    for i in $(seq 1 19); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -107,14 +114,17 @@ run_step() {
 # ── Setup completo ────────────────────────────────────────────────────────
 run_full_setup() {
     echo
-    warn "O setup completo executará as etapas 1 a 17 em sequência."
+    warn "O setup completo executará as etapas de infraestrutura base: ${FULL_STEPS[*]}."
+    warn "As etapas 15 (novo serviço) e 17 (CI/CD) são sob demanda — rode-as depois."
     warn "Você será solicitado a fornecer informações em cada etapa."
     echo
     confirm "Iniciar setup completo?" || return
 
-    for i in $(seq 1 17); do
+    local total=${#FULL_STEPS[@]} n=0
+    for i in "${FULL_STEPS[@]}"; do
+        n=$((n + 1))
         echo
-        echo -e "${BOLD}${CYAN}════ Etapa ${i}/17: ${STEP_NAMES[$i]} ════${RESET}"
+        echo -e "${BOLD}${CYAN}════ Etapa ${i} (${n}/${total}): ${STEP_NAMES[$i]} ════${RESET}"
         echo
         bash "${SCRIPT_DIR}/${STEP_SCRIPTS[$i]}"
         local exit_code=$?
@@ -129,11 +139,10 @@ run_full_setup() {
     echo -e "${GREEN}${BOLD}══ Setup concluído! ══${RESET}"
     echo
     echo -e "Próximos passos:"
-    echo -e "  • Edite os arquivos ${CYAN}.env${RESET} de cada projeto"
-    echo -e "  • Suba os containers: ${CYAN}docker compose up --build -d${RESET}"
-    echo -e "  • Use a etapa ${YELLOW}15${RESET} para adicionar novos projetos"
-    echo -e "  • Use a etapa ${YELLOW}17${RESET} para gerar o CI/CD (GitHub Actions) de um projeto"
-    echo -e "  • Use a etapa ${YELLOW}18${RESET} para consultar/gerenciar as portas reservadas na VPS"
+    echo -e "  • Aponte o DNS do dashboard do Traefik e do Grafana para o IP da VPS"
+    echo -e "  • Use a etapa ${YELLOW}15${RESET} para adicionar um novo serviço (monorepo multi-container)"
+    echo -e "  • Use a etapa ${YELLOW}17${RESET} para gerar o CI/CD (GitHub Actions) de um serviço"
+    echo -e "  • Use a etapa ${YELLOW}12${RESET} do monitor (opção 12) para ver as URLs do Grafana/Traefik"
     echo -e "  • Consulte o log em: ${CYAN}/var/log/vps-setup.log${RESET}"
     echo
 }
@@ -145,7 +154,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-8]) run_step "$choice" ;;
+        [1-9]|1[0-9]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

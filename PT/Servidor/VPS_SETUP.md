@@ -1,6 +1,8 @@
 # Configuração de Infraestrutura VPS do Zero
 
-> Guia completo com hardening, firewall, isolamento por usuário, múltiplos domínios, SSL e boas práticas de segurança para Ubuntu 24.04 LTS.
+> Guia completo para uma VPS **multi-serviço com Docker**: hardening, firewall, isolamento por usuário, **Traefik** como edge proxy com HTTPS automático, **observabilidade** (Prometheus/Grafana/Loki) e boas práticas de segurança para Ubuntu 24.04 LTS.
+
+> **Modelo:** a VPS hospeda vários serviços, cada um um **monorepo com múltiplos containers**. O **Traefik** roteia por domínio via *labels* do Docker (sem escolher portas na mão) e cuida do TLS. Métricas e logs são centralizados no **Grafana**. Nada de configuração por projeto na mão.
 
 ---
 
@@ -14,14 +16,16 @@
 6. [Grupos e usuários por projeto](#6-grupos-e-usuários-por-projeto)
 7. [Estrutura de pastas e permissões](#7-estrutura-de-pastas-e-permissões)
 8. [Instalar e configurar o Docker com segurança](#8-instalar-e-configurar-o-docker-com-segurança)
-9. [Nginx como reverse proxy](#9-nginx-como-reverse-proxy)
-10. [SSL com Let's Encrypt e renovação automática](#10-ssl-com-lets-encrypt-e-renovação-automática)
+9. [Edge proxy (Traefik)](#9-edge-proxy-traefik)
+10. [TLS/HTTPS automático (Let's Encrypt via Traefik)](#10-tlshttps-automático-lets-encrypt-via-traefik)
 11. [Segurança do banco de dados PostgreSQL](#11-segurança-do-banco-de-dados-postgresql)
 12. [Atualizações automáticas de segurança](#12-atualizações-automáticas-de-segurança)
-13. [Monitoramento e logs](#13-monitoramento-e-logs)
+13. [Observabilidade e logs](#13-observabilidade-e-logs)
 14. [Hardening contínuo do servidor](#14-hardening-contínuo-do-servidor)
-15. [Adicionar um novo projeto](#15-adicionar-um-novo-projeto)
-16. [Resumo: portas, usuários e domínios](#16-resumo-portas-usuários-e-domínios)
+15. [Adicionar um novo serviço (monorepo multi-container)](#15-adicionar-um-novo-serviço-monorepo-multi-container)
+16. [Resumo: fluxo, portas e domínios](#16-resumo-fluxo-portas-e-domínios)
+
+> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). Os números das etapas batem com as seções deste guia; a observabilidade é a etapa 19.
 
 ---
 
@@ -430,31 +434,20 @@ sudo ufw status verbose
 
 ### 5.5 Impedir que o Docker contorne o UFW
 
-Por padrão, o Docker manipula o iptables diretamente e consegue expor portas de containers **mesmo com regras de bloqueio no UFW**. Isso é um problema de segurança grave.
+Por padrão, o Docker manipula o iptables diretamente e consegue expor portas de containers **mesmo com regras de bloqueio no UFW**. No modelo com Traefik, o Docker **precisa** gerenciar o iptables (para publicar 80/443), então não desligamos isso — fechamos a brecha por dois caminhos combinados:
+
+1. **As aplicações não publicam portas.** O Traefik alcança cada container pela rede `edge`. O único serviço que publica em `0.0.0.0` é o Traefik (80/443). O que precisar de porta de host (ex.: banco para túnel) publica só em `127.0.0.1`.
+2. **`ufw-docker`** — faz as regras do UFW valerem também para portas publicadas por containers, como defesa em profundidade:
 
 ```bash
-sudo nano /etc/docker/daemon.json
+sudo curl -fsSL https://raw.githubusercontent.com/chaifeng/ufw-docker/master/ufw-docker \
+  -o /usr/local/bin/ufw-docker
+sudo chmod +x /usr/local/bin/ufw-docker
+sudo ufw-docker install
+sudo systemctl restart ufw
 ```
 
-```json
-{
-  "iptables": false,
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  }
-}
-```
-
-- `"iptables": false` — impede que o Docker modifique as regras do firewall diretamente; todo acesso externo passa obrigatoriamente pelo Nginx
-- `"log-driver": "json-file"` — formato de log dos containers
-- `"max-size": "10m"` — cada arquivo de log tem no máximo 10 MB antes de rotacionar
-- `"max-file": "3"` — mantém no máximo 3 arquivos de log por container (evita lotar o disco)
-
-```bash
-sudo systemctl restart docker
-```
+O `daemon.json` (log rotativo, live-restore) é configurado na [seção 8.2](#82-daemonjson--log-rotativo-e-resiliência).
 
 ---
 
@@ -525,85 +518,55 @@ sudo useradd \
 
 ## 7. Estrutura de pastas e permissões
 
+A VPS hospeda **vários serviços**, então a árvore de pastas separa duas coisas: a **infraestrutura compartilhada** (o proxy e a observabilidade, que existem uma vez só) e os **serviços** (um por monorepo). Nada aqui é específico de um projeto — os serviços concretos entram na [seção 15](#15-adicionar-um-novo-serviço-monorepo-multi-container).
+
 ### 7.1 Estrutura base
 
 ```
-/opt/apps/
-├── sql-challenge/
-│   ├── backend/        ← repositório (dono: sqlchallenge:webapps  chmod 750)
-│   └── .env            ← variáveis   (dono: sqlchallenge:webapps  chmod 640)
-├── projeto-dois/
-│   ├── app/
-│   └── .env
-└── projeto-tres/
-    ├── app/
-    └── .env
+/opt/
+├── platform/                 ← infra compartilhada (uma vez só)
+│   ├── edge/                 ← Traefik + docker-socket-proxy (seção 9)
+│   ├── observability/        ← Prometheus, Grafana, Loki, Alloy… (seção 13)
+│   └── .env                  ← segredos da plataforma (chmod 640)
+└── apps/                     ← um subdiretório por serviço (seção 15)
+    └── <servico>/
+        ├── production/
+        │   ├── app/          ← git clone do monorepo (dono: <servico>:webapps)
+        │   ├── compose.override.yml  ← labels do Traefik (gerado no servidor)
+        │   └── .env
+        └── staging/          ← mesma estrutura (opcional)
 ```
 
-- `/opt/apps/` — diretório padrão para aplicações de terceiros no Linux; fora do `/home` e do `/var`, mantendo organização clara
-- Cada projeto tem sua própria subpasta com dono e permissões isolados
+- `/opt/` — fora de `/home` e `/var`, é o lugar padrão no Linux para software próprio.
+- `platform` pertence a `root:docker` (o grupo docker lê o `.env` no `docker compose --env-file`).
+- Cada serviço em `apps/` tem **usuário e permissões isolados**: se um for comprometido, o atacante não alcança os outros.
 
-### 7.2 Criar a estrutura para o SQL Challenge
+### 7.2 Criar a estrutura base
 
 ```bash
-# Cria a pasta do projeto (e subpastas se necessário com -p)
-sudo mkdir -p /opt/apps/sql-challenge
+# Grupo compartilhado das aplicações (idempotente)
+sudo groupadd -f webapps
 
-# Define sqlchallenge como dono e webapps como grupo da pasta
-sudo chown sqlchallenge:webapps /opt/apps/sql-challenge
+# Raiz dos serviços — root é dono, webapps pode entrar/ler
+sudo mkdir -p /opt/apps
+sudo chown root:webapps /opt/apps
+sudo chmod 750 /opt/apps
 
-# chmod 750:
-# 7 = dono pode ler, escrever e executar (entrar na pasta)
-# 5 = grupo pode ler e executar (entrar, mas não criar arquivos)
-# 0 = outros não têm nenhum acesso
-sudo chmod 750 /opt/apps/sql-challenge
+# Infra compartilhada
+sudo mkdir -p /opt/platform/edge /opt/platform/observability
+sudo chown -R root:docker /opt/platform
+sudo chmod 750 /opt/platform
+
+# .env da plataforma (preenchido pelas seções 9 e 13) — só root escreve, docker lê
+sudo touch /opt/platform/.env
+sudo chown root:docker /opt/platform/.env
+sudo chmod 640 /opt/platform/.env
 ```
 
-```bash
-# Clona o repositório como o usuário sqlchallenge
-# sudo -u sqlchallenge: executa o comando como se fosse o usuário sqlchallenge
-sudo -u sqlchallenge git clone \
-  https://github.com/sql-challenge/sql-challenge-backend.git \
-  /opt/apps/sql-challenge/backend
-```
+- `chmod 750` — dono lê/escreve/entra, grupo entra/lê, outros nada.
+- `chmod 640` no `.env` — dono lê/escreve, grupo lê, outros nada. O `.env` guarda segredos.
 
-```bash
-# Cria o arquivo .env de produção
-sudo nano /opt/apps/sql-challenge/.env
-
-# Define o dono correto
-sudo chown sqlchallenge:webapps /opt/apps/sql-challenge/.env
-
-# chmod 640:
-# 6 = dono pode ler e escrever
-# 4 = grupo pode apenas ler
-# 0 = outros não têm acesso
-# O .env contém senhas — não pode ser lido por qualquer usuário do sistema
-sudo chmod 640 /opt/apps/sql-challenge/.env
-
-# Cria um link simbólico do .env dentro do projeto
-# Assim o Docker Compose encontra o .env no lugar esperado
-sudo ln -s /opt/apps/sql-challenge/.env /opt/apps/sql-challenge/backend/.env
-```
-
-- `ln -s` — cria um link simbólico (atalho); o arquivo `.env` fisicamente existe em `/opt/apps/sql-challenge/.env` mas o projeto o enxerga em `backend/.env`
-
-### 7.3 Verificar as permissões
-
-```bash
-ls -la /opt/apps/
-ls -la /opt/apps/sql-challenge/
-```
-
-- `ls -la` — lista arquivos com detalhes (`-l`) incluindo arquivos ocultos (`-a`)
-
-Resultado esperado:
-
-```
-drwxr-x--- sqlchallenge webapps  sql-challenge/   ← 750
-drwxr-x--- sqlchallenge webapps  backend/         ← 750
--rw-r----- sqlchallenge webapps  .env             ← 640
-```
+> A pasta de cada serviço (com dono próprio e clone do monorepo) é criada pela [seção 15](#15-adicionar-um-novo-serviço-monorepo-multi-container), não aqui.
 
 ---
 
@@ -630,265 +593,174 @@ newgrp docker
 
 - `newgrp docker` — aplica o novo grupo na sessão atual sem precisar fazer logout
 
-### 8.2 Boas práticas no docker-compose.yml
+### 8.2 daemon.json — log rotativo e resiliência
 
-Em produção, as portas dos containers **não devem ser expostas diretamente** — apenas o Nginx acessa:
+```bash
+sudo nano /etc/docker/daemon.json
+```
+
+```json
+{
+  "live-restore": true,
+  "userland-proxy": false,
+  "no-new-privileges": true,
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+```
+
+- `live-restore` — os containers continuam rodando durante um restart do daemon.
+- `no-new-privileges` — impede escalonamento de privilégio dentro dos containers (padrão seguro).
+- `log-opts` — rotaciona os logs (10 MB × 3 arquivos por container) para não lotar o disco.
+
+```bash
+sudo systemctl restart docker
+```
+
+> **Mudança em relação ao guia antigo:** aqui o Docker **gerencia o iptables** (o padrão). No modelo com Traefik isso é necessário, pois o Traefik publica 80/443. A antiga recomendação de `"iptables": false` impediria isso. A proteção contra exposição indevida agora vem de outra regra: **as aplicações não publicam portas** — o Traefik as alcança pela rede `edge`; o único serviço que publica em `0.0.0.0` é o Traefik (80/443, que é o que queremos público). O que precisar de porta de host (ex.: banco para túnel) publica só em `127.0.0.1`. Para defesa em profundidade, veja o `ufw-docker` no [passo 5.5](#55-impedir-que-o-docker-contorne-o-ufw).
+
+### 8.3 Redes compartilhadas
+
+Duas redes externas conectam tudo. Crie-as uma vez:
+
+```bash
+# Traefik ↔ containers públicos
+sudo docker network create edge
+
+# Stack de observabilidade + alvos de métricas
+sudo docker network create observability
+```
+
+- **`edge`** — o Traefik e todo container que precisa ser público entram nela. É por aqui que o roteamento acontece, sem portas de host.
+- **`observability`** — Prometheus/Grafana/Loki e os exporters conversam por aqui, isolados da internet.
+- Cada serviço mantém ainda uma **rede interna própria** onde ficam banco e workers — que **nunca** entram na `edge`.
+
+### 8.4 Boas práticas no compose de um serviço
 
 ```yaml
 services:
   api:
     restart: unless-stopped
-    # 'expose' torna a porta visível apenas entre containers na mesma rede Docker
-    # Diferente de 'ports', não expõe para o host nem para a internet
-    expose:
-      - "3000"
+    networks: [internal]     # alcançável pelo Traefik quando também estiver na 'edge'
+    expose: ["3000"]          # visível só entre containers — nunca publicado no host
     deploy:
       resources:
         limits:
-          # Limita o uso de CPU a 50% de um núcleo
-          cpus: '0.5'
-          # Limita a memória RAM a 512 MB
+          cpus: "1.0"
           memory: 512M
-
   db:
     restart: unless-stopped
-    ports:
-      # "127.0.0.1:5432:5432" vincula a porta SOMENTE ao localhost da VPS
-      # Sem esse prefixo ("5432:5432"), a porta ficaria acessível para qualquer IP
-      - "127.0.0.1:5432:5432"
+    networks: [internal]     # NUNCA na 'edge' — banco não é público
 ```
 
-```bash
-cd /opt/apps/sql-challenge/backend
-
-# --build: reconstrói a imagem com o código mais recente
-# -d: sobe em background (detached mode)
-docker compose up --build -d
-
-# Verifica se os containers estão rodando e com status "healthy"
-docker compose ps
-
-# Acompanha os logs do backend em tempo real
-docker compose logs api
-```
+- Note a ausência de `ports:` — quem expõe é o Traefik, pela rede `edge` (via `compose.override.yml`, [seção 15](#15-adicionar-um-novo-serviço-monorepo-multi-container)).
+- Veja um exemplo completo de monorepo (web + api + worker + db) em `vps-scripts/templates/app/compose.example.yml`.
 
 ---
 
-## 9. Nginx como reverse proxy
+## 9. Edge proxy (Traefik)
 
-O Nginx recebe todo o tráfego externo nas portas 80/443 e encaminha para o container correto com base no domínio. Nenhuma porta de aplicação fica exposta diretamente na internet.
+O **Traefik** recebe todo o tráfego em 80/443 e encaminha para o container certo **com base no domínio** — descobrindo as rotas pelas *labels* de cada container. Não há arquivo de configuração por projeto: você só coloca labels no container, e o Traefik aparece com a rota (e o HTTPS) sozinho.
 
-### 9.1 Instalar
+### 9.1 Por que Traefik (e não Nginx) para containers
+
+| | Nginx | Traefik v3 |
+|---|---|---|
+| Descoberta de serviços | Manual (um arquivo por site) | Automática (labels do Docker) |
+| HTTPS | Certbot (processo à parte) | Let's Encrypt embutido |
+| Nova rota | Editar arquivo + `reload` | Subir o container com labels |
+| Métricas/observabilidade | Add-on | Prometheus + OpenTelemetry embutidos |
+
+Numa VPS com muitos serviços entrando e saindo, a descoberta automática elimina trabalho manual e uma classe inteira de erros.
+
+### 9.2 O socket do Docker é o ponto sensível
+
+Para descobrir rotas, o Traefik precisa **ler** a lista de containers do Docker. Dar a ele o `/var/run/docker.sock` cru equivale a dar **root** na máquina (quem fala com o socket cria containers privilegiados). A solução é o **docker-socket-proxy**: um intermediário que expõe **somente** a API de containers, em **modo leitura**. O Traefik fala com o proxy, nunca com o socket direto.
+
+### 9.3 Configuração
+
+Os templates prontos estão em `vps-scripts/templates/edge/` (`traefik.yml`, `dynamic/security.yml`, `compose.yml`). O script `09-edge-proxy.sh` os instala em `/opt/platform/edge`, pede o e-mail do ACME e as credenciais do dashboard, e sobe a stack. Os pontos-chave:
+
+- **Entrypoints:** `web` (80) redireciona tudo para `websecure` (443).
+- **TLS automático:** um `certResolver` Let's Encrypt (`tlsChallenge`) — cada serviço com as labels de TLS recebe e renova o certificado sozinho.
+- **Middlewares globais** (em `dynamic/security.yml`): cabeçalhos de segurança + HSTS, rate-limit e compressão, agrupados numa cadeia `secure-chain`.
+- **Dashboard nunca público:** protegido por basic-auth **e** allowlist de IP.
+- `exposedByDefault=false`: um container só é roteado se declarar `traefik.enable=true`.
+
+### 9.4 Como um serviço declara suas rotas (labels)
+
+O container **não publica porta**; ele entra na rede `edge` e descreve a rota por labels:
+
+```yaml
+services:
+  api:
+    networks: [internal, edge]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=edge
+      - traefik.http.routers.api.rule=Host(`api.seudominio.com`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.routers.api.middlewares=secure-chain@file
+      - traefik.http.services.api.loadbalancer.server.port=3000
+```
+
+- `rule=Host(...)` — qual domínio esse container responde.
+- `services...server.port` — a porta **interna** do container (não uma porta de host).
+- Um monorepo com vários containers públicos declara **um router por container** (ex.: `app.seudominio.com` → web, `api.seudominio.com` → api). O banco e os workers ficam só na rede `internal`, sem labels — invisíveis de fora.
+
+Na prática, a [seção 15](#15-adicionar-um-novo-serviço-monorepo-multi-container) **gera** essas labels num `compose.override.yml` no servidor, para o repositório continuar portátil.
+
+### 9.5 Subir
 
 ```bash
-sudo apt install -y nginx
-sudo systemctl enable nginx   # inicia automaticamente ao ligar a VPS
-sudo systemctl start nginx
-
-# Remove o site padrão que vem com o Nginx
-sudo rm /etc/nginx/sites-enabled/default
+sudo bash vps-scripts/scripts/09-edge-proxy.sh
+# ou, manualmente:
+cd /opt/platform/edge
+docker compose --env-file /opt/platform/.env up -d
 ```
 
-### 9.2 Cabeçalhos globais de segurança
-
-```bash
-sudo nano /etc/nginx/conf.d/security-headers.conf
-```
-
-```nginx
-# Impede que o browser "adivinhe" o tipo do arquivo — evita ataques MIME sniffing
-add_header X-Content-Type-Options    "nosniff"                              always;
-
-# Impede que a página seja carregada dentro de um iframe — previne ataques de clickjacking
-add_header X-Frame-Options           "DENY"                                 always;
-
-# Ativa o filtro XSS nativo do browser e bloqueia a página se detectar ataque
-add_header X-XSS-Protection          "1; mode=block"                        always;
-
-# HSTS: força o browser a usar HTTPS por 1 ano após o primeiro acesso seguro
-# includeSubDomains: aplica também nos subdomínios
-add_header Strict-Transport-Security "max-age=31536000; includeSubDomains"  always;
-
-# Controla quais informações de origem são enviadas ao acessar outros sites
-add_header Referrer-Policy           "strict-origin-when-cross-origin"      always;
-```
-
-- `always` — envia o cabeçalho em **todas** as respostas, incluindo erros (4xx, 5xx)
-
-### 9.3 Configuração do SQL Challenge
-
-```bash
-sudo nano /etc/nginx/sites-available/sql-challenge
-```
-
-```nginx
-server {
-    # Escuta na porta 80 (HTTP)
-    listen 80;
-
-    # Nome do domínio que essa configuração atende
-    server_name api.seudominio.com;
-
-    # Tamanho máximo do corpo de uma requisição (uploads, JSON grandes)
-    client_max_body_size 10M;
-
-    # Tempo máximo para o backend responder antes de retornar erro 504
-    proxy_read_timeout 60s;
-
-    # Tempo máximo para estabelecer conexão com o backend
-    proxy_connect_timeout 10s;
-
-    # Oculta a versão do Nginx nas páginas de erro (dificulta exploração de vulnerabilidades)
-    server_tokens off;
-
-    location / {
-        # Encaminha as requisições para o container do backend
-        proxy_pass http://localhost:3000;
-
-        # Usa HTTP 1.1 para suportar conexões persistentes e WebSockets
-        proxy_http_version 1.1;
-
-        # Necessário para WebSockets funcionarem corretamente
-        proxy_set_header Upgrade            $http_upgrade;
-        proxy_set_header Connection         'upgrade';
-
-        # Repassa o domínio original ao backend (necessário para CORS funcionar)
-        proxy_set_header Host               $host;
-
-        # IP real do cliente (sem isso o backend vê o IP do Nginx, não do usuário)
-        proxy_set_header X-Real-IP          $remote_addr;
-
-        # Cadeia de IPs por onde a requisição passou (proxies intermediários)
-        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
-
-        # Informa ao backend se a conexão original era HTTP ou HTTPS
-        proxy_set_header X-Forwarded-Proto  $scheme;
-
-        # Ignora cache para conexões com Upgrade (WebSocket)
-        proxy_cache_bypass                  $http_upgrade;
-    }
-}
-```
-
-```bash
-# Ativa o site criando um link simbólico na pasta sites-enabled
-sudo ln -s /etc/nginx/sites-available/sql-challenge /etc/nginx/sites-enabled/
-
-# Testa se a sintaxe do arquivo está correta — sempre faça isso antes de recarregar
-sudo nginx -t
-
-# Recarrega o Nginx aplicando as novas configurações sem derrubar conexões ativas
-sudo systemctl reload nginx
-```
-
-- `sites-available` — contém todas as configurações de sites (ativos ou não)
-- `sites-enabled` — contém apenas links simbólicos para os sites ativos
-- Essa separação permite desativar um site removendo o link sem apagar a configuração
-
-### 9.4 Modelo para novos projetos
-
-```bash
-sudo nano /etc/nginx/sites-available/NOME_PROJETO
-```
-
-```nginx
-server {
-    listen 80;
-    server_name dominio.do.projeto.com;
-
-    client_max_body_size 10M;
-    server_tokens off;
-
-    location / {
-        # Cada projeto usa uma porta diferente internamente
-        proxy_pass            http://localhost:PORTA_DO_PROJETO;
-        proxy_http_version    1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/NOME_PROJETO /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-```
+> Ajuste a allowlist de IP do dashboard em `/opt/platform/edge/dynamic/security.yml` (middleware `admin-allowlist`) para o IP do seu escritório/VPN.
 
 ---
 
-## 10. SSL com Let's Encrypt e renovação automática
+## 10. TLS/HTTPS automático (Let's Encrypt via Traefik)
 
-O Let's Encrypt fornece certificados SSL gratuitos com validade de 90 dias, renovados automaticamente.
+Com o Traefik, **não há mais Certbot**: o HTTPS é automático. Assim que um serviço sobe com as labels de TLS e o DNS do domínio aponta para a VPS, o Traefik resolve o desafio ACME, emite o certificado e passa a renová-lo sozinho (bem antes dos 90 dias).
 
-### 10.1 Instalar o Certbot
+### 10.1 O que você precisa garantir
 
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-```
+1. **DNS:** o domínio precisa resolver para o IP da VPS **antes** de o certificado ser emitido — `dig +short api.seudominio.com` deve devolver o IP.
+2. **Portas:** 80 e 443 abertas no UFW ([seção 5](#5-firewall-com-ufw)).
+3. **Permissão do `acme.json`:** o arquivo que guarda os certificados precisa estar em `chmod 600` (o script já cuida disso).
 
-- `certbot` — ferramenta que solicita e gerencia certificados SSL junto ao Let's Encrypt
-- `python3-certbot-nginx` — plugin que permite ao Certbot configurar o Nginx automaticamente
+### 10.2 Verificar o estado
 
-### 10.2 Gerar o certificado
-
-```bash
-sudo certbot --nginx -d api.seudominio.com
-```
-
-- `--nginx` — usa o plugin do Nginx; edita automaticamente o arquivo de configuração para HTTPS
-- `-d api.seudominio.com` — domínio para o qual o certificado será emitido (deve apontar para o IP da VPS no DNS)
-
-O Certbot irá:
-1. Verificar que o domínio aponta para a VPS via HTTP
-2. Emitir o certificado
-3. Atualizar o arquivo do Nginx com as configurações HTTPS
-4. Configurar redirecionamento automático de HTTP para HTTPS
-
-### 10.3 Verificar a renovação automática
+O script `10-ssl.sh` (menu) diagnostica: se o Traefik está rodando, se o `acme.json` tem a permissão certa e quais domínios já têm certificado emitido.
 
 ```bash
-# Verifica se o timer de renovação está ativo
-sudo systemctl status certbot.timer
+# Ver os certificados já emitidos
+sudo jq -r '.le.Certificates[]?.domain.main' /opt/platform/edge/acme.json
 
-# Simula uma renovação para garantir que funciona (não emite certificado novo)
-sudo certbot renew --dry-run
+# Acompanhar a emissão em tempo real
+docker compose -f /opt/platform/edge/compose.yml logs -f traefik
 ```
 
-- Os certificados são renovados automaticamente quando faltam menos de 30 dias para expirar
-- `--dry-run` — executa todo o processo de renovação sem de fato emitir um certificado novo
+### 10.3 Certificado wildcard (`*.seudominio.com`)
 
-### 10.4 Resultado após o Certbot
+O `tlsChallenge` padrão emite um certificado por domínio. Para um **wildcard**, troque-o por um **dnsChallenge** no `/opt/platform/edge/traefik.yml`, informando as credenciais do seu provedor de DNS (Cloudflare, Route53, etc.):
 
-O arquivo do Nginx é atualizado automaticamente:
-
-```nginx
-# Bloco HTTPS adicionado pelo Certbot
-server {
-    listen 443 ssl;
-    server_name api.seudominio.com;
-
-    # Caminhos dos certificados gerados pelo Let's Encrypt
-    ssl_certificate     /etc/letsencrypt/live/api.seudominio.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api.seudominio.com/privkey.pem;
-
-    # Configurações de segurança SSL recomendadas pelo Let's Encrypt
-    include             /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
-
-    location / { ... }
-}
-
-# Redirecionamento HTTP → HTTPS adicionado pelo Certbot
-server {
-    listen 80;
-    server_name api.seudominio.com;
-    return 301 https://$host$request_uri;
-}
+```yaml
+certificatesResolvers:
+  le:
+    acme:
+      email: "voce@exemplo.com"
+      storage: /acme/acme.json
+      dnsChallenge:
+        provider: cloudflare   # ajuste ao seu provedor
 ```
 
-- `return 301` — redirecionamento permanente; avisa ao browser e aos buscadores que o endereço mudou definitivamente para HTTPS
+As credenciais entram como variáveis de ambiente do container do Traefik (ex.: `CF_DNS_API_TOKEN`), guardadas no `/opt/platform/.env`.
 
 ---
 
