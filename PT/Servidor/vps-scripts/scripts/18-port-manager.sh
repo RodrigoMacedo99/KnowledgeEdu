@@ -1,11 +1,11 @@
 #!/bin/bash
 # Seção 18 — Gerenciador de portas da VPS
 #
-# Como cada projeto (etapa 15) e seu CI/CD (etapa 17) recebem portas alocadas
-# automaticamente pelo registro central (lib/ports.sh), este script existe só
-# para dar visibilidade e permitir manutenção manual: ver o que está
-# reservado, checar uma porta específica e liberar reservas de projetos
-# decomissionados.
+# No modelo com Traefik, serviços HTTP NÃO usam porta de host (o roteamento é por
+# domínio, via labels). O registro central (lib/ports.sh) passa a rastrear só as
+# portas de host que sobram: coisas não-HTTP como um banco exposto em 127.0.0.1
+# para túnel SSH. Este script dá visibilidade e manutenção manual dessas
+# reservas: listar, checar uma porta e liberar reservas de serviços removidos.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -53,7 +53,7 @@ while true; do
             list_ports
             echo
             prompt PROJECT_TO_RELEASE "Nome do projeto"  ""
-            prompt ENV_TO_RELEASE     "Ambiente (production/staging/production-green)" ""
+            prompt ENV_TO_RELEASE     "Ambiente/rótulo (ex: db, production, staging)" ""
             current_port=$(get_port "$PROJECT_TO_RELEASE" "$ENV_TO_RELEASE")
             if [[ -z "$current_port" ]]; then
                 warn "Não há porta reservada para ${PROJECT_TO_RELEASE}:${ENV_TO_RELEASE}."

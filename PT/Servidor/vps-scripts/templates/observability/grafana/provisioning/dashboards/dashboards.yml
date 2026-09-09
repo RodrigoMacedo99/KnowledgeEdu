@@ -1,0 +1,18 @@
+# Provedor de dashboards: o Grafana carrega qualquer .json colocado na pasta
+# apontada em 'path'. Importe dashboards prontos da comunidade por ID (ver
+# OBSERVABILIDADE.md) e salve o JSON aqui para versioná-los.
+# Copiado para: /opt/platform/observability/grafana/provisioning/dashboards/
+
+apiVersion: 1
+
+providers:
+  - name: default
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

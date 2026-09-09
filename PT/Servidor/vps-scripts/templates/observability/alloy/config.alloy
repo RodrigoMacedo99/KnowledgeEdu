@@ -1,0 +1,45 @@
+// Grafana Alloy — coletor unificado (substitui o Promtail, em EOL desde mar/2026).
+// Aqui ele descobre todos os containers Docker, lê os logs deles e envia ao Loki,
+// enriquecendo cada linha com o nome do container e o projeto compose de origem.
+// Copiado para: /opt/platform/observability/alloy/config.alloy
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// Descobre os containers via socket-proxy (leitura apenas).
+discovery.docker "containers" {
+  host = "tcp://socket-proxy:2375"
+}
+
+// Transforma metadados do Docker em labels úteis no Loki.
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+}
+
+// Lê o stream de logs de cada container descoberto.
+loki.source.docker "containers" {
+  host          = "tcp://socket-proxy:2375"
+  targets       = discovery.relabel.containers.output
+  forward_to    = [loki.write.default.receiver]
+  relabel_rules = discovery.relabel.containers.rules
+}
+
+// Envia tudo ao Loki.
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

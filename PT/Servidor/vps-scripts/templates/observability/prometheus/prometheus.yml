@@ -1,0 +1,37 @@
+# Prometheus — quais alvos raspar e com que frequência.
+# Copiado para: /opt/platform/observability/prometheus/prometheus.yml
+#
+# Todos os alvos são resolvidos por DNS interno do Docker (nome do serviço).
+# Nenhum deles é exposto na internet — o acesso é só pela rede 'observability'.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Métricas RED do proxy: requisições, erros e latência por serviço/router.
+  - job_name: traefik
+    static_configs:
+      - targets: ["traefik:8082"]
+
+  # Métricas por container: CPU, memória, rede, disco.
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Métricas do host: CPU, RAM, disco, load, rede da própria VPS.
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]

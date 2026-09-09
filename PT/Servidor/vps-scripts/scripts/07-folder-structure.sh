@@ -1,5 +1,11 @@
 #!/bin/bash
-# Seção 7 — Estrutura de pastas e permissões
+# Seção 7 — Estrutura de pastas e permissões (genérica)
+#
+# A VPS hospeda MÚLTIPLOS serviços. Esta etapa não conhece nenhum projeto
+# específico: ela só prepara a árvore base que todo o resto usa —
+#   /opt/platform  → infraestrutura compartilhada (Traefik + observabilidade)
+#   /opt/apps      → um subdiretório por serviço (criado depois pela etapa 15)
+# Projetos concretos entram pela etapa 15; aqui é só o alicerce.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -9,77 +15,56 @@ init_log "07-folder-structure"
 
 title "7. Estrutura de pastas e permissões"
 
-PROJECT_NAME="sql-challenge"
-SERVICE_USER="sqlchallenge"
-PROJECT_DIR="/opt/apps/${PROJECT_NAME}"
+APPS_DIR="/opt/apps"
+PLATFORM_DIR="/opt/platform"
 
-# ── Criar pasta do projeto ─────────────────────────────────────────────────
-if [[ -d "$PROJECT_DIR" ]]; then
-    already_done "Pasta $PROJECT_DIR"
+# ── Grupo compartilhado das aplicações ─────────────────────────────────────
+if getent group webapps &>/dev/null; then
+    already_done "Grupo webapps"
 else
-    info "Criando $PROJECT_DIR..."
-    mkdir -p "$PROJECT_DIR"
+    info "Criando grupo webapps..."
+    groupadd webapps
 fi
 
-info "Aplicando dono e permissões em $PROJECT_DIR..."
-chown "${SERVICE_USER}:webapps" "$PROJECT_DIR"
-chmod 750 "$PROJECT_DIR"
+# ── /opt/apps — raiz de todos os serviços ──────────────────────────────────
+if [[ -d "$APPS_DIR" ]]; then
+    already_done "Pasta $APPS_DIR"
+else
+    info "Criando $APPS_DIR..."
+    mkdir -p "$APPS_DIR"
+fi
+# root é dono, webapps pode entrar/ler. Cada projeto (etapa 15) recebe seu
+# próprio dono e permissões isoladas dentro daqui.
+chown root:webapps "$APPS_DIR"
+chmod 750 "$APPS_DIR"
 
-# ── Clonar repositórios ────────────────────────────────────────────────────
-declare -A REPOS=(
-    ["backend"]="https://github.com/sql-challenge/sql-challenge-backend.git"
-    ["frontend"]="https://github.com/sql-challenge/sql-challenge-frontend.git"
-    ["modelagem"]="https://github.com/sql-challenge/sql-challenge-modelagem_de_dados.git"
-)
+# ── /opt/platform — infra compartilhada (Traefik, observabilidade) ─────────
+if [[ -d "$PLATFORM_DIR" ]]; then
+    already_done "Pasta $PLATFORM_DIR"
+else
+    info "Criando $PLATFORM_DIR (edge/ e observability/)..."
+    mkdir -p "$PLATFORM_DIR/edge" "$PLATFORM_DIR/observability"
+fi
+chown -R root:docker "$PLATFORM_DIR"
+chmod 750 "$PLATFORM_DIR"
+
+# ── .env da plataforma (segredos de Traefik/Grafana) ───────────────────────
+PLATFORM_ENV="${PLATFORM_DIR}/.env"
+if [[ -f "$PLATFORM_ENV" ]]; then
+    already_done ".env da plataforma"
+else
+    info "Criando ${PLATFORM_ENV} (preenchido pelas etapas 9 e 19)..."
+    touch "$PLATFORM_ENV"
+    chown root:docker "$PLATFORM_ENV"
+    # 640: só root escreve; grupo docker lê (docker compose --env-file).
+    chmod 640 "$PLATFORM_ENV"
+fi
 
 echo
-for DEST in "${!REPOS[@]}"; do
-    REPO_URL="${REPOS[$DEST]}"
-    TARGET_DIR="$PROJECT_DIR/$DEST"
+info "Estrutura criada:"
+echo -e "  ${CYAN}${PLATFORM_DIR}${RESET}  → infra compartilhada (etapas 9 e 19)"
+echo -e "  ${CYAN}${APPS_DIR}${RESET}      → serviços (etapa 15)"
+echo
+ls -la /opt/ | grep -E 'apps|platform' || true
 
-    if [[ -d "$TARGET_DIR" ]]; then
-        already_done "Repositório $DEST ($TARGET_DIR)"
-        continue
-    fi
-
-    if confirm "Clonar $DEST? ($REPO_URL)"; then
-        info "Clonando $DEST como $SERVICE_USER..."
-        if sudo -u "$SERVICE_USER" git clone "$REPO_URL" "$TARGET_DIR"; then
-            chown -R "${SERVICE_USER}:webapps" "$TARGET_DIR"
-            find "$TARGET_DIR" -type d -exec chmod 750 {} \;
-            find "$TARGET_DIR" -type f -exec chmod 640 {} \;
-            log "$DEST clonado em $TARGET_DIR"
-        else
-            warn "Falha ao clonar $DEST — faça manualmente:"
-            warn "  sudo -u ${SERVICE_USER} git clone ${REPO_URL} ${TARGET_DIR}"
-        fi
-    else
-        warn "Clone de $DEST pulado — faça manualmente:"
-        warn "  sudo -u ${SERVICE_USER} git clone ${REPO_URL} ${TARGET_DIR}"
-    fi
-done
-
-# ── Criar .env ────────────────────────────────────────────────────────────
-ENV_FILE="$PROJECT_DIR/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    already_done ".env em $PROJECT_DIR"
-else
-    info "Criando .env vazio em $PROJECT_DIR..."
-    touch "$ENV_FILE"
-    chown "${SERVICE_USER}:webapps" "$ENV_FILE"
-    chmod 640 "$ENV_FILE"
-    warn "Edite o arquivo de variáveis: sudo nano ${ENV_FILE}"
-
-    # Link simbólico para o backend
-    BACKEND_ENV="$PROJECT_DIR/backend/.env"
-    if [[ -d "$PROJECT_DIR/backend" && ! -L "$BACKEND_ENV" ]]; then
-        ln -s "$ENV_FILE" "$BACKEND_ENV"
-        log "Link simbólico criado: $BACKEND_ENV → $ENV_FILE"
-    fi
-fi
-
-info "Permissões em /opt/apps:"
-ls -la /opt/apps/
-ls -la "$PROJECT_DIR/"
-
-step_done "Estrutura de pastas ($PROJECT_DIR)"
+step_done "Estrutura de pastas (/opt/apps, /opt/platform)"

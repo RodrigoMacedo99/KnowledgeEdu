@@ -1,0 +1,87 @@
+# Configuração ESTÁTICA do Traefik v3 — carregada só no boot do container.
+# O roteamento em si (quem responde por qual domínio) NÃO fica aqui: vem das
+# labels de cada container (provider docker) e do arquivo dinâmico em dynamic/.
+#
+# Copiado para: /opt/platform/edge/traefik.yml (montado read-only no container)
+
+# ── Painel/API ──────────────────────────────────────────────────────────────
+api:
+  dashboard: true
+  # 'insecure: false' é o padrão seguro: o dashboard NÃO fica exposto numa porta
+  # solta. Ele só é alcançável pelo router protegido definido nas labels do
+  # compose (basic-auth + allowlist de IP). Nunca ligue 'insecure: true'.
+  insecure: false
+
+# ── Onde o Traefik escuta ────────────────────────────────────────────────────
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      # Todo tráfego HTTP é redirecionado para HTTPS antes de chegar na app.
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: le
+    # Confia apenas nos cabeçalhos de proxy vindos de redes privadas — evita
+    # que um cliente externo forje X-Forwarded-* para se passar por outro IP.
+    forwardedHeaders:
+      trustedIPs:
+        - "127.0.0.1/32"
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+  # Entrypoint interno só para o Prometheus raspar métricas (nunca publicado).
+  metrics:
+    address: ":8082"
+
+# ── De onde vem a configuração de roteamento ─────────────────────────────────
+providers:
+  docker:
+    # O Traefik NÃO fala direto com /var/run/docker.sock. Ele fala com o
+    # docker-socket-proxy, que só expõe a API de leitura de containers.
+    endpoint: "tcp://socket-proxy:2375"
+    # Um container só é roteado se declarar 'traefik.enable=true'. Nada é
+    # exposto por engano.
+    exposedByDefault: false
+    network: edge
+    watch: true
+  file:
+    # Middlewares e opções de TLS globais (headers, rate-limit, ciphers).
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# ── HTTPS automático (Let's Encrypt) ─────────────────────────────────────────
+certificatesResolvers:
+  le:
+    acme:
+      email: "${ACME_EMAIL}"
+      storage: /acme/acme.json
+      # TLS-ALPN resolve o desafio na própria 443 — não depende da porta 80 nem
+      # colide com o redirect HTTP→HTTPS. Para certificados wildcard, troque por
+      # um dnsChallenge (ver OBSERVABILIDADE/VPS_SETUP).
+      tlsChallenge: {}
+
+# ── Métricas (consumidas pelo Prometheus) ────────────────────────────────────
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+
+# ── Logs estruturados (JSON) — coletados pelo Alloy → Loki ───────────────────
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+
+# ── Telemetria do próprio Traefik ────────────────────────────────────────────
+ping: {}
