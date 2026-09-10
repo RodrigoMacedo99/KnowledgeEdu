@@ -21,6 +21,7 @@ Internet
   │
   ▼  ── Borda de aplicação ──────────────────────────────────
   Traefik + TLS               HTTPS forçado, HSTS, headers, rate    → etapa 9
+  Authelia (2FA/SSO web)      2FA em qualquer serviço via proxy     → etapa 21
   socket-proxy                Docker exposto em leitura apenas       → etapa 9
   │
   ▼  ── Isolamento ──────────────────────────────────────────
@@ -60,7 +61,28 @@ Internet
 | Kernel + auditoria base | 14 | `14-hardening.sh` |
 | Atualizações automáticas | 12 | `12-auto-updates.sh` |
 | Observabilidade | 19 | `19-observability.sh` |
-| Senha, core dumps, AppArmor, auditd, 2FA, userns | 20 | `20-hardening-extra.sh` |
+| Senha, core dumps, AppArmor, auditd, 2FA SSH, userns | 20 | `20-hardening-extra.sh` |
+| 2FA/SSO nos serviços web (Authelia) | 21 | `21-2fa-web.sh` |
+
+---
+
+## 2b. Autenticação de dois fatores (2FA) em duas frentes
+
+O 2FA cobre os dois caminhos de entrada do servidor:
+
+### Acesso administrativo — 2FA no SSH (etapa 20, opt-in)
+Além da chave, um código do app autenticador (TOTP). Configuração segura por padrão:
+- Usa **`nullok`**: quem ainda não cadastrou o token entra só com a chave — ninguém fica trancado para fora. O 2FA passa a valer por usuário quando ele roda `google-authenticator`.
+- O fluxo `keyboard-interactive` do PAM é ajustado para pedir **só o código** (não a senha do Unix), e o `sshd -t` valida antes de aplicar (com rollback automático se falhar).
+
+### Acesso aos serviços web — Authelia (etapa 21)
+Um portal de login único que o Traefik consulta por *forward-auth*. Para exigir 2FA em **qualquer** serviço web, basta adicionar um middleware ao router dele:
+```
+traefik.http.routers.<router>.middlewares=secure-chain@file,authelia@docker
+```
+Assim você protege com senha + 2FA (TOTP/WebAuthn) o dashboard do Traefik, o Grafana, ambientes de staging e painéis internos — tudo com o mesmo login. Suporta regras de acesso por domínio/grupo e bloqueia força bruta no próprio portal.
+
+> Guarde os códigos de recuperação gerados no cadastro. Sem SMTP configurado, links de registro/reset vão para `/opt/platform/auth/notification.txt`.
 
 ---
 

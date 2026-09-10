@@ -32,6 +32,7 @@ declare -A STEP_NAMES=(
     [18]="Gerenciador de portas"
     [19]="Observabilidade (Prometheus, Grafana, Loki, Alloy)"
     [20]="Camadas extras de segurança (dados sigilosos)"
+    [21]="2FA/SSO nos serviços web (Authelia)"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -55,6 +56,7 @@ declare -A STEP_SCRIPTS=(
     [18]="scripts/18-port-manager.sh"
     [19]="scripts/19-observability.sh"
     [20]="scripts/20-hardening-extra.sh"
+    [21]="scripts/21-2fa-web.sh"
 )
 
 # Etapas que compõem o "setup completo" da infraestrutura base (na ordem).
@@ -74,7 +76,7 @@ show_menu() {
     echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência (${FULL_STEPS[*]})"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 20); do
+    for i in $(seq 1 21); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -156,7 +158,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-9]|20) run_step "$choice" ;;
+        [1-9]|1[0-9]|2[01]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

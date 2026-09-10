@@ -167,19 +167,51 @@ fi
 
 # ── 8. [OPT-IN] 2FA (TOTP) no SSH ──────────────────────────────────────────
 echo
-warn "2FA no SSH adiciona um segundo fator (app autenticador) além da chave."
-warn "RISCO: se mal configurado, pode causar LOCKOUT. Mantenha uma sessão SSH aberta ao ativar."
-if confirm "Instalar o suporte a 2FA (TOTP) no SSH agora?"; then
+warn "2FA no SSH exige um código do app autenticador ALÉM da chave."
+warn "Este script usa 'nullok': quem ainda NÃO cadastrou o token entra só com a"
+warn "chave — ninguém é trancado para fora. O 2FA passa a valer por usuário assim"
+warn "que ele rodar 'google-authenticator'. Mantenha ESTA sessão aberta ao ativar."
+if confirm "Configurar 2FA (TOTP) no SSH agora?"; then
     DEBIAN_FRONTEND=noninteractive apt install -y libpam-google-authenticator >/dev/null 2>&1 \
-        && log "libpam-google-authenticator instalado." \
-        || warn "Falha na instalação."
-    echo
-    info "Para ATIVAR o 2FA (faça com uma sessão aberta como salvaguarda):"
-    echo -e "  1. Como o usuário SSH, rode: ${CYAN}google-authenticator${RESET} (escaneie o QR no app)."
-    echo -e "  2. Em ${CYAN}/etc/pam.d/sshd${RESET}, adicione: ${CYAN}auth required pam_google_authenticator.so${RESET}"
-    echo -e "  3. Em ${CYAN}/etc/ssh/sshd_config${RESET}: ${CYAN}KbdInteractiveAuthentication yes${RESET} e"
-    echo -e "     ${CYAN}AuthenticationMethods publickey,keyboard-interactive${RESET}"
-    echo -e "  4. ${CYAN}sudo sshd -t && sudo systemctl restart ssh${RESET} (teste num NOVO terminal)."
+        || die "Falha ao instalar libpam-google-authenticator."
+
+    PAM_SSHD="/etc/pam.d/sshd"
+    SSHD_CFG="/etc/ssh/sshd_config"
+    PAM_BAK="${PAM_SSHD}.bak.$(date +%s)"
+    CFG_BAK="${SSHD_CFG}.bak.$(date +%s)"
+    cp "$PAM_SSHD" "$PAM_BAK"
+    cp "$SSHD_CFG" "$CFG_BAK"
+
+    # 1) PAM: módulo TOTP no topo (nullok = sem token cadastrado não bloqueia).
+    grep -q "pam_google_authenticator.so" "$PAM_SSHD" || \
+        sed -i '1i auth required pam_google_authenticator.so nullok' "$PAM_SSHD"
+
+    # 2) PAM: no fluxo keyboard-interactive, NÃO pedir a senha do Unix (só o OTP).
+    sed -i 's/^@include common-auth/#@include common-auth  # 2FA: chave + OTP (vps-setup)/' "$PAM_SSHD"
+
+    # 3) sshd: exige chave E keyboard-interactive (que o PAM resolve como OTP).
+    set_sshd() {
+        local k="$1" v="$2"
+        if grep -qE "^#?${k}\s" "$SSHD_CFG"; then
+            sed -i "s|^#\?${k}\s.*|${k} ${v}|" "$SSHD_CFG"
+        else
+            echo "${k} ${v}" >> "$SSHD_CFG"
+        fi
+    }
+    set_sshd KbdInteractiveAuthentication "yes"
+    set_sshd AuthenticationMethods        "publickey,keyboard-interactive"
+
+    if sshd -t 2>/dev/null; then
+        systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+        log "2FA no SSH configurado (nullok)."
+        echo
+        info "ATIVE por usuário: cada um roda ${CYAN}google-authenticator${RESET} e escaneia o QR."
+        warn "TESTE AGORA num NOVO terminal antes de fechar esta sessão."
+    else
+        error "sshd -t falhou — revertendo (nada foi aplicado)."
+        cp "$PAM_BAK" "$PAM_SSHD"
+        cp "$CFG_BAK" "$SSHD_CFG"
+    fi
 else
     info "2FA no SSH pulado."
 fi
