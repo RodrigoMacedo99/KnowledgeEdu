@@ -31,6 +31,7 @@ declare -A STEP_NAMES=(
     [17]="Gerador de CI/CD (GitHub Actions) para um serviço"
     [18]="Gerenciador de portas"
     [19]="Observabilidade (Prometheus, Grafana, Loki, Alloy)"
+    [20]="Camadas extras de segurança (dados sigilosos)"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -53,12 +54,13 @@ declare -A STEP_SCRIPTS=(
     [17]="scripts/17-cicd-generator.sh"
     [18]="scripts/18-port-manager.sh"
     [19]="scripts/19-observability.sh"
+    [20]="scripts/20-hardening-extra.sh"
 )
 
 # Etapas que compõem o "setup completo" da infraestrutura base (na ordem).
 # As etapas 13 (monitor interativo), 15 (adicionar serviço), 17 (CI/CD) e 18
 # (portas) são sob demanda e ficam fora daqui.
-FULL_STEPS=(1 2 3 4 5 6 7 8 9 10 11 12 14 16 19)
+FULL_STEPS=(1 2 3 4 5 6 7 8 9 10 11 12 14 16 19 20)
 
 # ── Menu principal ─────────────────────────────────────────────────────────
 show_menu() {
@@ -72,7 +74,7 @@ show_menu() {
     echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência (${FULL_STEPS[*]})"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 19); do
+    for i in $(seq 1 20); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -154,7 +156,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-9]) run_step "$choice" ;;
+        [1-9]|1[0-9]|20) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

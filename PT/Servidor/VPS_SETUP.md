@@ -25,7 +25,7 @@
 15. [Adicionar um novo serviço (monorepo multi-container)](#15-adicionar-um-novo-serviço-monorepo-multi-container)
 16. [Resumo: fluxo, portas e domínios](#16-resumo-fluxo-portas-e-domínios)
 
-> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). Os números das etapas batem com as seções deste guia; a observabilidade é a etapa 19.
+> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). Os números das etapas batem com as seções deste guia; a observabilidade é a etapa 19 e as **camadas extras de segurança** (para dados sigilosos) são a etapa 20 — ver [`SEGURANCA.md`](./SEGURANCA.md). A identidade exibida no login (MOTD) é genérica e configurada na etapa 3.
 
 ---
 

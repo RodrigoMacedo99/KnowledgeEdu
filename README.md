@@ -48,6 +48,7 @@ KnowledgeEdu/
 |---|---|---|
 | `Servidor` | [`VPS_SETUP.md`](PT/Servidor/VPS_SETUP.md) | Configurar uma VPS multi-serviço do zero: SSH, firewall, Docker, Traefik (proxy por labels + HTTPS automático), observabilidade e segurança |
 | `Servidor` | [`OBSERVABILIDADE.md`](PT/Servidor/OBSERVABILIDADE.md) | Métricas, logs e dashboards com Prometheus, Grafana, Loki e Grafana Alloy |
+| `Servidor` | [`SEGURANCA.md`](PT/Servidor/SEGURANCA.md) | Defesa em profundidade da VPS: as camadas de segurança, o que cada etapa aplica e o que fazer manualmente para dados sigilosos |
 | `Servidor` | [`DEPLOY.md`](PT/Servidor/DEPLOY.md) | Subir backend + banco em produção com Docker Compose e CD automático (exemplo concreto) |
 | `Arquitetura` | [`ARQUITETURA_DE_SOFTWARE.md`](PT/Arquitetura/ARQUITETURA_DE_SOFTWARE.md) | Fundamentos de arquitetura de software para full stack/full cycle com UML e exemplos práticos em Python |
 | `MachineLearning` | [`MACHINE_LEARNING.md`](PT/MachineLearning/MACHINE_LEARNING.md) | Trilha de ML do básico ao avançado: dedução de fórmulas, regressão, árvore, SVM, estatística, visão computacional, séries temporais, LLM e MLOps |
@@ -81,9 +82,10 @@ Sugestão de ordem para quem está começando:
 5. Servidor/VPS_SETUP.md
 6. Servidor/OBSERVABILIDADE.md
 7. Cyberseguranca/CYBERSEGURANCA.md
-8. Servidor/DEPLOY.md
-9. CI-CD/GITHUB_ACTIONS.md
-10. Agentes/AGENTES_IA.md
+8. Servidor/SEGURANCA.md
+9. Servidor/DEPLOY.md
+10. CI-CD/GITHUB_ACTIONS.md
+11. Agentes/AGENTES_IA.md
 ```
 
 ---

@@ -78,8 +78,33 @@ EOF
     log "Banner de aviso criado em $BANNER_FILE"
 fi
 
+# ── Identidade do servidor (exibida no MOTD) — genérica e configurável ─────
+# Nada aqui é fixo: os dados são perguntados e salvos num arquivo que o MOTD lê
+# em tempo de execução. Deixe qualquer campo em branco para omiti-lo. Para mudar
+# depois, basta editar /etc/vps-setup/server-info (sem reexecutar este script).
+SERVER_INFO="/etc/vps-setup/server-info"
+mkdir -p /etc/vps-setup
+# Reaproveita valores já salvos como default (idempotente em reexecuções).
+# shellcheck disable=SC1090
+[[ -f "$SERVER_INFO" ]] && source "$SERVER_INFO"
+
+prompt          SERVER_NAME   "Identificação do servidor (título do MOTD)"            "${SERVER_NAME:-$(hostname)}"
+prompt_optional ADMIN_NAME    "Administrado por (nome/organização) — vazio p/ omitir" "${ADMIN_NAME:-}"
+prompt_optional ADMIN_CONTACT "Contato/URL (ex: github.com/voce) — vazio p/ omitir"  "${ADMIN_CONTACT:-}"
+prompt_optional SERVER_DESC   "Descrição curta do servidor — vazio p/ texto genérico" "${SERVER_DESC:-}"
+
+cat > "$SERVER_INFO" <<EOF
+# Identidade exibida no MOTD (etapa 3). Edite à vontade — o MOTD lê em tempo real.
+SERVER_NAME="${SERVER_NAME}"
+ADMIN_NAME="${ADMIN_NAME}"
+ADMIN_CONTACT="${ADMIN_CONTACT}"
+SERVER_DESC="${SERVER_DESC}"
+EOF
+chmod 644 "$SERVER_INFO"
+log "Identidade do servidor salva em $SERVER_INFO."
+
 # ── MOTD — exibido APÓS o login bem-sucedido ──────────────────────────────
-# Nome em ASCII art exibido ao conectar na VPS
+# ASCII art genérico ("SERVER") + identidade lida de $SERVER_INFO em runtime.
 MOTD_CUSTOM="/etc/update-motd.d/00-server-banner"
 if [[ -f "$MOTD_CUSTOM" ]]; then
     already_done "MOTD customizado"
@@ -112,14 +137,20 @@ cat <<'ASCII'
 
 ASCII
 echo -e "${RESET}"
-echo -e "  ${BOLD}Administrado por:${RESET} ${CYAN}Rodrigo de Jesus Macedo${RESET}"
-echo -e "  ${BOLD}GitHub:${RESET}           ${CYAN}github.com/RodrigoMacedo99${RESET}"
+
+# Identidade configurável — definida em /etc/vps-setup/server-info (etapa 3).
+[ -f /etc/vps-setup/server-info ] && . /etc/vps-setup/server-info
+
+[ -n "${SERVER_NAME:-}" ]    && echo -e "  ${BOLD}Servidor:${RESET}         ${CYAN}${SERVER_NAME}${RESET}"
+[ -n "${ADMIN_NAME:-}" ]     && echo -e "  ${BOLD}Administrado por:${RESET} ${CYAN}${ADMIN_NAME}${RESET}"
+[ -n "${ADMIN_CONTACT:-}" ]  && echo -e "  ${BOLD}Contato:${RESET}          ${CYAN}${ADMIN_CONTACT}${RESET}"
 echo
-echo -e "  Este servidor hospeda e executa os projetos do portfólio profissional"
-echo -e "  de Rodrigo de Jesus Macedo — aplicações full-stack desenvolvidas com"
-echo -e "  foco em boas práticas de engenharia de software, segurança e DevOps."
-echo -e "  Cada projeto roda de forma isolada, com usuário e rede próprios,"
-echo -e "  protegido por firewall, proxy reverso com SSL e monitoramento ativo."
+if [ -n "${SERVER_DESC:-}" ]; then
+    echo -e "  ${SERVER_DESC}"
+else
+    echo -e "  Servidor de aplicações em containers Docker, isolado por serviço,"
+    echo -e "  protegido por firewall, proxy reverso com HTTPS e monitoramento ativo."
+fi
 echo -e "  ${BOLD}${CYAN}────────────────────────────────────────────────────${RESET}"
 echo
 
