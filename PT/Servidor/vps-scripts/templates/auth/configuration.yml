@@ -50,7 +50,6 @@ storage:
   local:
     path: '/config/db.sqlite3'
 
-# Notificações (reset/registro) vão para arquivo. Em produção real, configure SMTP.
-notifier:
-  filesystem:
-    filename: '/config/notification.txt'
+# O bloco 'notifier:' (SMTP ou arquivo) é ANEXADO aqui pela etapa 21, conforme
+# você informe ou não um servidor de e-mail. Sem SMTP, as notificações de
+# registro de 2FA e reset caem em /config/notification.txt.

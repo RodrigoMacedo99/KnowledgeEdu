@@ -29,6 +29,18 @@ prompt ADMIN_USER    "Usuário administrador do portal" "admin"
 prompt ADMIN_EMAIL   "E-mail do administrador" ""
 prompt_secret ADMIN_PASS "Senha do administrador do portal"
 
+echo
+info "Sem SMTP, o link de cadastro do 2FA e resets caem em notification.txt no servidor."
+USE_SMTP="n"
+if confirm "Configurar envio por e-mail (SMTP) para cadastro/reset do 2FA?"; then
+    USE_SMTP="y"
+    prompt SMTP_HOST   "Servidor SMTP (ex: smtp.gmail.com)"        ""
+    prompt SMTP_PORT   "Porta SMTP (587 = STARTTLS, 465 = TLS)"    "587"
+    prompt SMTP_USER   "Usuário/login SMTP"                        "$ADMIN_EMAIL"
+    prompt SMTP_SENDER "Remetente (From)"                          "Authelia <no-reply@${COOKIE_DOMAIN}>"
+    prompt_secret SMTP_PASS "Senha (ou app-password) do SMTP"
+fi
+
 # ── 2. Instalar templates e renderizar o domínio ───────────────────────────
 info "Instalando configuração do Authelia em ${AUTH_DIR}..."
 mkdir -p "$AUTH_DIR"
@@ -36,6 +48,33 @@ sed -e "s|__DOMAIN__|${COOKIE_DOMAIN}|g" \
     -e "s|__AUTH_HOST__|${AUTH_HOST}|g" \
     "${TEMPLATES_DIR}/auth/configuration.yml" > "${AUTH_DIR}/configuration.yml"
 cp "${TEMPLATES_DIR}/auth/compose.yml" "${AUTH_DIR}/compose.yml"
+
+# Notifier: SMTP (se informado) ou arquivo. Anexado ao fim da config.
+if [[ "$USE_SMTP" == "y" ]]; then
+    # 465 = TLS implícito (submissions://); demais portas = STARTTLS (smtp://).
+    if [[ "$SMTP_PORT" == "465" ]]; then SMTP_SCHEME="submissions"; else SMTP_SCHEME="smtp"; fi
+    cat >> "${AUTH_DIR}/configuration.yml" <<EOF
+
+notifier:
+  smtp:
+    address: '${SMTP_SCHEME}://${SMTP_HOST}:${SMTP_PORT}'
+    username: '${SMTP_USER}'
+    sender: '${SMTP_SENDER}'
+    subject: '[Authelia] {title}'
+EOF
+    # Senha do SMTP como segredo no .env (recriada sem sed p/ aceitar qualquer caractere).
+    sed -i '/^AUTHELIA_NOTIFIER_SMTP_PASSWORD=/d' "$PLATFORM_ENV" 2>/dev/null || true
+    echo "AUTHELIA_NOTIFIER_SMTP_PASSWORD=${SMTP_PASS}" >> "$PLATFORM_ENV"
+    log "Notifier SMTP configurado (${SMTP_HOST}:${SMTP_PORT})."
+else
+    cat >> "${AUTH_DIR}/configuration.yml" <<'EOF'
+
+notifier:
+  filesystem:
+    filename: '/config/notification.txt'
+EOF
+    info "Notifier em arquivo (/config/notification.txt)."
+fi
 
 # ── 3. Hash argon2 da senha do admin (gerado pelo próprio Authelia) ────────
 info "Gerando hash argon2 da senha (via imagem do Authelia)..."
@@ -119,7 +158,11 @@ echo
 echo -e "${BOLD}Cadastrar o 2FA (primeiro acesso):${RESET}"
 echo -e "  1. Aponte o DNS de ${AUTH_HOST} para o IP da VPS."
 echo -e "  2. Acesse o portal, entre com usuário/senha e registre o app autenticador (TOTP)."
-echo -e "     (O link de registro vai para ${CYAN}${AUTH_DIR}/notification.txt${RESET} — sem SMTP configurado.)"
+if [[ "$USE_SMTP" == "y" ]]; then
+    echo -e "     (O link de registro chega no e-mail via SMTP configurado.)"
+else
+    echo -e "     (Sem SMTP: o link de registro cai em ${CYAN}${AUTH_DIR}/notification.txt${RESET} — leia-o lá.)"
+fi
 echo
 echo -e "${BOLD}Já protegidos por padrão:${RESET} dashboard do Traefik e Grafana."
 echo
