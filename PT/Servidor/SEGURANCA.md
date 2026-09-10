@@ -80,7 +80,7 @@ Um portal de login único que o Traefik consulta por *forward-auth*. Para exigir
 ```
 traefik.http.routers.<router>.middlewares=secure-chain@file,authelia@docker
 ```
-Assim você protege com senha + 2FA (TOTP/WebAuthn) o dashboard do Traefik, o Grafana, ambientes de staging e painéis internos — tudo com o mesmo login. Suporta regras de acesso por domínio/grupo e bloqueia força bruta no próprio portal.
+A própria etapa 21 já coloca o **dashboard do Traefik** e o **Grafana** atrás do Authelia por padrão; para os demais (staging, painéis internos) basta a label acima. Tudo com o mesmo login (senha + 2FA TOTP/WebAuthn). Suporta regras de acesso por domínio/grupo e bloqueia força bruta no próprio portal.
 
 > Guarde os códigos de recuperação gerados no cadastro. Sem SMTP configurado, links de registro/reset vão para `/opt/platform/auth/notification.txt`.
 

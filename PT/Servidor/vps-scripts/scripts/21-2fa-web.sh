@@ -77,6 +77,40 @@ chmod 640 "$PLATFORM_ENV"
 info "Subindo o Authelia..."
 docker compose --env-file "$PLATFORM_ENV" -f "${AUTH_DIR}/compose.yml" up -d
 
+# ── 5b. Proteger dashboard do Traefik e Grafana com o Authelia ─────────────
+# Feito só AGORA (não nos templates) porque o middleware 'authelia@docker' só
+# existe depois que o Authelia sobe — se estivesse fixo no edge, o router
+# quebraria antes da etapa 21. Idempotente.
+protect_with_authelia() {
+    local compose_file="$1" router="$2" new_mw="$3" stack="$4"
+    if [[ ! -f "$compose_file" ]]; then
+        warn "${stack} não instalado — pulei a proteção de '${router}'."
+        return
+    fi
+    if grep -q "routers.${router}.middlewares=.*authelia@docker" "$compose_file"; then
+        already_done "'${router}' já protegido pelo Authelia"
+        return
+    fi
+    if ! grep -q "traefik.http.routers.${router}.middlewares=" "$compose_file"; then
+        warn "Router '${router}' não encontrado em ${compose_file} — proteja manualmente."
+        return
+    fi
+    cp "$compose_file" "${compose_file}.bak.$(date +%s)"
+    sed -i "s|\(traefik.http.routers.${router}.middlewares=\).*|\1${new_mw}|" "$compose_file"
+    docker compose --env-file "$PLATFORM_ENV" -f "$compose_file" up -d >/dev/null 2>&1 \
+        && log "'${router}' agora exige login no Authelia." \
+        || warn "Reaplique manualmente: docker compose -f ${compose_file} up -d"
+}
+
+echo
+info "Protegendo o dashboard do Traefik e o Grafana com o Authelia (padrão)..."
+# Dashboard: troca o basic-auth pelo Authelia, mantendo a allowlist de IP.
+protect_with_authelia "/opt/platform/edge/compose.yml" "dashboard" \
+    "admin-allowlist@file,authelia@docker" "Edge/Traefik"
+# Grafana: mantém a cadeia de segurança e adiciona o Authelia na frente.
+protect_with_authelia "/opt/platform/observability/compose.yml" "grafana" \
+    "secure-chain@file,authelia@docker" "Observabilidade"
+
 # ── 6. Resumo e como proteger um serviço ───────────────────────────────────
 echo
 echo -e "${BOLD}${GREEN}══ Authelia no ar ══${RESET}"
@@ -87,10 +121,11 @@ echo -e "  1. Aponte o DNS de ${AUTH_HOST} para o IP da VPS."
 echo -e "  2. Acesse o portal, entre com usuário/senha e registre o app autenticador (TOTP)."
 echo -e "     (O link de registro vai para ${CYAN}${AUTH_DIR}/notification.txt${RESET} — sem SMTP configurado.)"
 echo
-echo -e "${BOLD}Proteger um serviço com 2FA${RESET} — adicione ao router dele a label:"
+echo -e "${BOLD}Já protegidos por padrão:${RESET} dashboard do Traefik e Grafana."
+echo
+echo -e "${BOLD}Proteger OUTRO serviço com 2FA${RESET} — adicione ao router dele a label:"
 echo -e "  ${CYAN}traefik.http.routers.<router>.middlewares=secure-chain@file,authelia@docker${RESET}"
-echo -e "  Ex.: para o dashboard do Traefik e o Grafana, inclua ${CYAN}authelia@docker${RESET}"
-echo -e "  na linha de middlewares do router e rode 'docker compose up -d' do stack."
+echo -e "  e rode 'docker compose up -d' do stack correspondente."
 echo
 warn "Valide a config se algo não subir: docker compose -f ${AUTH_DIR}/compose.yml logs authelia"
 warn "Ou: docker run --rm -v ${AUTH_DIR}:/config ${AUTHELIA_IMAGE} authelia validate-config --config /config/configuration.yml"
