@@ -46,6 +46,7 @@ KnowledgeEdu/
 
 | Pasta | Arquivo | O que você vai aprender |
 |---|---|---|
+| `Servidor` | [`ARQUITETURA_DA_VPS.md`](PT/Servidor/ARQUITETURA_DA_VPS.md) | Guia de estudo em prosa, com diagramas UML, de tudo o que existe na configuração e como funciona — leia primeiro para ter a visão do conjunto |
 | `Servidor` | [`VPS_SETUP.md`](PT/Servidor/VPS_SETUP.md) | Configurar uma VPS multi-serviço do zero: SSH, firewall, Docker, Traefik (proxy por labels + HTTPS automático), observabilidade e segurança |
 | `Servidor` | [`OBSERVABILIDADE.md`](PT/Servidor/OBSERVABILIDADE.md) | Métricas, logs e dashboards com Prometheus, Grafana, Loki e Grafana Alloy |
 | `Servidor` | [`SEGURANCA.md`](PT/Servidor/SEGURANCA.md) | Defesa em profundidade da VPS: as camadas de segurança, o que cada etapa aplica e o que fazer manualmente para dados sigilosos |
@@ -79,13 +80,14 @@ Sugestão de ordem para quem está começando:
 2. Arquitetura/ARQUITETURA_DE_SOFTWARE.md
 3. MachineLearning/MACHINE_LEARNING.md
 4. IoT/IOT.md
-5. Servidor/VPS_SETUP.md
-6. Servidor/OBSERVABILIDADE.md
-7. Cyberseguranca/CYBERSEGURANCA.md
-8. Servidor/SEGURANCA.md
-9. Servidor/DEPLOY.md
-10. CI-CD/GITHUB_ACTIONS.md
-11. Agentes/AGENTES_IA.md
+5. Servidor/ARQUITETURA_DA_VPS.md
+6. Servidor/VPS_SETUP.md
+7. Servidor/OBSERVABILIDADE.md
+8. Cyberseguranca/CYBERSEGURANCA.md
+9. Servidor/SEGURANCA.md
+10. Servidor/DEPLOY.md
+11. CI-CD/GITHUB_ACTIONS.md
+12. Agentes/AGENTES_IA.md
 ```
 
 ---
