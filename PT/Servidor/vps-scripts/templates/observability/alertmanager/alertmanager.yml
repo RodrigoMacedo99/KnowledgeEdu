@@ -1,0 +1,15 @@
+# Alertmanager — para onde vão os alertas disparados pelo Prometheus.
+# Por padrão o receiver é "vazio" (alertas não são enviados a lugar nenhum, mas
+# o Alertmanager funciona). A etapa 19 sobrescreve este arquivo com um webhook
+# (Slack/Discord/etc.) ou e-mail, se você informar um destino.
+# Copiado para: /opt/platform/observability/alertmanager/alertmanager.yml
+
+route:
+  receiver: 'default'
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: 'default'

@@ -38,13 +38,15 @@ Internet
   Política de senha           mín. 14 caracteres, 3 classes          → etapa 20
   Atualizações automáticas    correções de segurança sem intervenção → etapa 12
   │
-  ▼  ── Auditoria ───────────────────────────────────────────
+  ▼  ── Detecção e resposta ─────────────────────────────────
+  CrowdSec (IPS)              detecta e bane IPs (blocklist colab.)   → etapa 23
   auditd                      registra acesso a arquivos sensíveis   → etapa 20
   AIDE                        detecta alteração de binários/config   → etapa 14
-  Observabilidade             métricas e logs centralizados          → etapa 19
+  Observabilidade + alertas   métricas/logs + SLO alerts             → etapa 19
   │
   ▼  ── O dado ──────────────────────────────────────────────
-  Segredos em .env (chmod 640), TLS no banco, backups criptografados → manual (§3)
+  Backups criptografados      dump + age, retenção, off-site         → etapa 22
+  Segredos (.env chmod 640), TLS no banco, LUKS/SOPS                 → manual (§3)
 ```
 
 ---
@@ -60,9 +62,12 @@ Internet
 | Edge proxy + TLS + socket-proxy | 9 | `09-edge-proxy.sh` |
 | Kernel + auditoria base | 14 | `14-hardening.sh` |
 | Atualizações automáticas | 12 | `12-auto-updates.sh` |
-| Observabilidade | 19 | `19-observability.sh` |
+| Observabilidade + alertas (SLOs) | 19 | `19-observability.sh` |
 | Senha, core dumps, AppArmor, auditd, 2FA SSH, userns | 20 | `20-hardening-extra.sh` |
 | 2FA/SSO nos serviços web (Authelia) | 21 | `21-2fa-web.sh` |
+| Backups automatizados e criptografados | 22 | `22-backups.sh` |
+| CrowdSec (IPS colaborativo) | 23 | `23-crowdsec.sh` |
+| Verificação da plataforma (self-check) | 24 | `24-verify.sh` |
 
 ---
 
@@ -90,42 +95,57 @@ O **Grafana** ainda é configurado para **login único (SSO)**: ele confia no ca
 
 ## 3. Camadas que dependem de você
 
-Automação não cobre tudo. Para **dados sigilosos**, estas são essenciais:
+A maior parte já é automatizada (§2). O que **inerentemente** depende de você e do provedor:
 
-### 3.1 Criptografia em repouso (disco)
+### 3.1 Criptografia em repouso (disco) — provisão
 Full-disk encryption (LUKS) protege os dados se o disco for copiado/roubado. É definida na **provisão** da VPS — a maioria dos provedores oferece a opção ao criar a máquina. Não dá para aplicar bem depois do sistema instalado.
 
-### 3.2 Segredos versionados
-Nunca commite `.env` em texto puro. Criptografe com **SOPS + age**:
-```bash
-# Gera uma chave age e criptografa o .env antes de commitar
-age-keygen -o age.key
-sops --encrypt --age $(grep -oP 'public key: \K.*' age.key) .env > .env.enc
-```
-Guarde a chave privada fora do repositório (cofre de segredos / gerenciador).
+### 3.2 Custódia da chave de backup e teste de restauração
+Os backups (etapa 22) já são automáticos e cifrados com `age`. O que **só você** pode garantir:
+- Guardar a **chave privada** `age` **off-site** (nunca no próprio servidor) — sem ela não há restauração.
+- **Testar a restauração** periodicamente: `age -d -i chave.txt backup.age | tar xzf -`. Backup nunca restaurado não é backup.
+- Configurar o destino off-site (rclone) para uma região/provedor diferente.
 
-### 3.3 Backups criptografados e off-site
+### 3.3 Segredos versionados (SOPS + age)
+Nunca commite `.env` em texto puro. Antes de subir ao Git, criptografe:
 ```bash
-docker exec <db> pg_dump -U user db | gzip | gpg --encrypt -r voce@exemplo.com > backup.sql.gz.gpg
+age-keygen -o age.key
+sops --encrypt --age "$(grep -oP 'public key: \K.*' age.key)" .env > .env.enc
 ```
-Envie para armazenamento externo (outro provedor/região). Teste a restauração periodicamente.
+Guarde a chave privada fora do repositório (cofre/gerenciador de segredos).
 
 ### 3.4 Banco de dados
 - Senha `scram-sha-256` (padrão no Postgres moderno), forte e única.
 - TLS na conexão da aplicação com o banco.
 - Porta **nunca** exposta na internet — administração só por túnel SSH (`ssh -L`).
 
-### 3.5 WAF / IPS colaborativo (opcional, recomendado)
-**CrowdSec** com um *bouncer* no Traefik bloqueia IPs maliciosos com base em inteligência compartilhada — uma camada a mais na borda.
+### 3.5 Validação ponta a ponta
+Rode a **etapa 24** (`24-verify.sh`) após o deploy — ela confere cada camada (Traefik, observabilidade, 2FA, firewall, backups, CrowdSec, DNS). Nenhuma automação substitui rodar de fato na sua VPS e ver o self-check verde.
 
 ---
 
 ## 4. Rotina mínima
 
-- **Semanal:** revisar bans (`fail2ban-client status`), portas abertas (`ss -tulpen`), atualizações pendentes.
+- **Pós-deploy / semanal:** rodar a etapa 24 (`24-verify.sh`) e conferir bans (`cscli decisions list`, `fail2ban-client status`) e portas (`ss -tulpen`).
 - **A cada deploy:** scan de vulnerabilidade das imagens (Trivy no CI — etapa 17).
-- **Mensal:** conferir alterações do AIDE, revisar `~/.ssh/authorized_keys` e usuários com shell.
-- **Sempre:** o `.env` da plataforma e o `acme.json` em `chmod 600/640`; segredos fora do Git.
+- **Mensal:** **testar a restauração** de um backup; conferir AIDE; revisar `~/.ssh/authorized_keys` e usuários com shell.
+- **Sempre:** `.env` e `acme.json` em `chmod 600/640`; segredos fora do Git; chave privada de backup só off-site.
+
+---
+
+## 5. LGPD e dados sigilosos
+
+Segurança técnica é necessária, mas não basta para conformidade legal. Se o servidor trata dados pessoais (LGPD):
+
+- **Minimização:** colете e retenha só o necessário; defina prazos de retenção (inclusive para logs no Loki e backups).
+- **Base legal e finalidade:** registre por que cada dado é tratado.
+- **Criptografia:** em trânsito (TLS, já automático) e em repouso (LUKS + backups cifrados, §3).
+- **Controle de acesso:** 2FA (etapas 20/21), menor privilégio e trilha de auditoria (`auditd`, etapa 20).
+- **Registro de acessos:** os logs centralizados (Loki) ajudam a responder "quem acessou o quê".
+- **Resposta a incidentes:** tenha um plano; a observabilidade + CrowdSec dão a detecção, mas a comunicação ao titular/ANPD em caso de vazamento é processo, não script.
+- **Terceiros:** provedores de VPS/e-mail/off-site são operadores — verifique contratos e localização dos dados.
+
+> Isto é orientação técnica, não aconselhamento jurídico. Para dados sensíveis, valide o tratamento com quem responde pela conformidade.
 
 ---
 

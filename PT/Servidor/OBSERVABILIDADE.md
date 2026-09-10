@@ -152,11 +152,15 @@ container_memory_usage_bytes{name!=""}
 
 ## 8. Alertas e SLOs
 
-Os SLOs mínimos do projeto (`CLAUDE.md`): disponibilidade 99.9%, taxa de erro < 0.1%, p99 < 2s. O caminho recomendado:
+Os SLOs mínimos do projeto (`CLAUDE.md`): disponibilidade 99.9%, taxa de erro < 0.1%, p99 < 2s. O stack **já vem com alertas**:
 
-1. Comece **observando** os painéis por algumas semanas para conhecer o normal do seu tráfego.
-2. Configure alertas no Grafana (Alerting) sobre as métricas RED do Traefik — ex.: p99 > 2s por 5 min, ou taxa de erro > 0.1%.
-3. Para roteamento de alertas (e-mail, Slack, on-call), adicione depois um **Alertmanager** ou use o Grafana Alerting com contact points. (Fora do escopo do stack base — deixado como próximo passo.)
+- **Prometheus** avalia regras prontas em `prometheus/rules/alerts.yml` — alvo inacessível, **taxa de erro 5xx > 0.1%** e **p99 > 2s** por serviço (Traefik), disco > 85% e memória > 90% do host.
+- **Alertmanager** roteia os alertas disparados. Na etapa 19 você informa uma **URL de webhook** (Slack/Discord/Teams/Google Chat) e os alertas passam a chegar lá; sem URL, ficam coletados aguardando um destino em `alertmanager/alertmanager.yml`.
+
+Ajuste os limiares em `alerts.yml` conforme conhecer o tráfego normal, e recarregue o Prometheus (`--web.enable-lifecycle` já está ligado):
+```bash
+docker exec observability-prometheus-1 kill -HUP 1   # ou: curl -X POST .../-/reload de dentro da rede
+```
 
 ---
 

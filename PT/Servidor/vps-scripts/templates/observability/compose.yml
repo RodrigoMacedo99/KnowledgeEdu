@@ -22,6 +22,7 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     networks:
       - observability
@@ -32,6 +33,24 @@ services:
       resources:
         limits:
           memory: 512M
+
+  # ── Alertas: roteia os alertas do Prometheus (e-mail/webhook) ───────────────
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - observability
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   # ── Dashboards: única peça acessível de fora (via Traefik) ───────────────────
   grafana:
@@ -186,6 +205,7 @@ volumes:
   grafana-data:
   loki-data:
   alloy-data:
+  alertmanager-data:
 
 networks:
   observability:
