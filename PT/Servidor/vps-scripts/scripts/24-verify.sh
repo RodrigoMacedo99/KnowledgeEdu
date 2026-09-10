@@ -104,6 +104,21 @@ else
     wr "dig não disponível (apt install dnsutils)"
 fi
 
+# ── k3s (runtime alternativo, se instalado) ────────────────────────────────
+if command -v k3s &>/dev/null; then
+    echo -e "\n${BOLD}k3s:${RESET}"
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    k3s kubectl get nodes 2>/dev/null | grep -q ' Ready ' && ok "Nó do cluster Ready" || no "Nó do cluster não está Ready"
+    k3s kubectl get clusterissuer letsencrypt &>/dev/null && ok "cert-manager (ClusterIssuer letsencrypt)" || wr "ClusterIssuer letsencrypt ausente (etapa 25)"
+    if k3s kubectl get ns observability &>/dev/null; then
+        pend="$(k3s kubectl get pods -n observability --no-headers 2>/dev/null | grep -cvE 'Running|Completed')"
+        [[ "${pend:-0}" -eq 0 ]] && ok "Observabilidade no k3s (pods Running)" || wr "Observabilidade no k3s: ${pend} pod(s) fora de Running"
+    else
+        wr "Observabilidade no k3s não instalada (etapa 26)"
+    fi
+    k3s kubectl get deploy authelia -n auth &>/dev/null && ok "Authelia no k3s" || wr "Authelia no k3s não instalado (etapa 27)"
+fi
+
 # ── Resumo ─────────────────────────────────────────────────────────────────
 echo
 echo -e "${BOLD}Resumo:${RESET} ${GREEN}${PASS} ok${RESET} · ${YELLOW}${WARN} avisos${RESET} · ${RED}${FAIL} falhas${RESET}"

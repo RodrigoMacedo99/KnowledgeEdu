@@ -51,9 +51,25 @@ O termo **pod**, que aparece aí, é a menor unidade do Kubernetes: um envelope 
 
 ---
 
-## Observabilidade e 2FA no k3s
+## Observabilidade e 2FA no k3s (paridade com o Docker)
 
-As mesmas capacidades do modelo Docker existem no mundo Kubernetes, instaladas via Helm em vez de Compose. Para métricas e painéis, o *chart* **kube-prometheus-stack** entrega Prometheus, Grafana e Alertmanager já integrados; para os logs, os *charts* **loki** e **alloy** da Grafana cumprem o papel do que o Alloy faz no modelo Docker. Para autenticação, o **Authelia** possui um *chart* oficial que se integra ao Traefik do k3s por *middleware*, oferecendo o mesmo login único com 2FA. Instalar e configurar esses charts é um passo além do "preparar para receber" desta etapa; o guia deixa o cluster pronto e aponta o caminho, para que a adoção seja incremental e sob seu controle.
+As mesmas capacidades do modelo Docker existem no mundo Kubernetes, e duas etapas as instalam. A **etapa 26** sobe, via Helm, o *chart* **kube-prometheus-stack** — que entrega Prometheus, Grafana e Alertmanager já integrados, com o Grafana exposto por Ingress e HTTPS, a senha de administrador gerada na hora e as mesmas regras de SLO por trás — e, opcionalmente, os *charts* **loki** e **alloy** da Grafana para agregar os logs de todos os pods. A **etapa 27** sobe o **Authelia** no cluster e cria um **Middleware** do Traefik; a partir dele, qualquer *Ingress* passa a exigir login com 2FA apenas acrescentando uma anotação, e a própria etapa já protege o Grafana. É o mesmo conjunto de recursos do modelo Docker, expresso no vocabulário do Kubernetes.
+
+Proteger um serviço qualquer com 2FA resume-se a colar esta anotação no *Ingress* dele, exatamente como no Docker se colava uma label no container:
+
+```yaml
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: auth-authelia@kubernetescrd
+```
+
+## Segredos, backup e verificação no k3s
+
+Os segredos deixam de morar em arquivos `.env` e passam a ser objetos **Secret** do próprio Kubernetes, que as etapas 26 e 27 criam para você (a senha do Grafana, as chaves do Authelia, o hash da senha do administrador). Para versioná-los com segurança num repositório, a mesma disciplina de **SOPS + age** vista em [`SEGURANCA.md`](./SEGURANCA.md) se aplica, e há a alternativa do *sealed-secrets*, que cifra o Secret de modo que só o cluster consiga abri-lo.
+
+O backup ganha duas frentes no k3s. A primeira é o **estado do cluster**: o k3s tira *snapshots* automáticos do seu banco interno, que você pode copiar para fora com regularidade. A segunda são os **dados das aplicações**, para os quais a lógica é a mesma do modelo Docker — um *dump* lógico do banco, agora obtido com `k3s kubectl exec` no pod do banco e enviado ao mesmo destino cifrado. A recuperação de desastre, portanto, continua descansando sobre backups testados, e não sobre a suposição de que a máquina nunca falhará.
+
+Por fim, a **etapa 24** (`24-verify.sh`) reconhece o k3s quando ele está instalado e acrescenta ao seu relatório a saúde do nó, do emissor de certificados e dos *namespaces* de observabilidade e de autenticação — de modo que o mesmo comando de verificação serve aos dois runtimes.
 
 ---
 

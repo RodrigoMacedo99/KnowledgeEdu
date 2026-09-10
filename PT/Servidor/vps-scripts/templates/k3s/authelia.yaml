@@ -1,0 +1,170 @@
+# Authelia no k3s — SSO + 2FA via forward-auth do Traefik (equivalente ao stack
+# Docker). A etapa 27 substitui __DOMAIN__ e __AUTH_HOST__ e cria à parte os
+# Secrets 'authelia-secrets' (chaves) e 'authelia-users' (base de usuários).
+#
+# Para proteger QUALQUER Ingress com 2FA, adicione a ele a anotação:
+#   traefik.ingress.kubernetes.io/router.middlewares: auth-authelia@kubernetescrd
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authelia-config
+  namespace: auth
+data:
+  configuration.yml: |
+    theme: 'dark'
+    server:
+      address: 'tcp4://0.0.0.0:9091/'
+    log:
+      level: 'info'
+      format: 'json'
+    totp:
+      issuer: '__DOMAIN__'
+    authentication_backend:
+      password_reset:
+        disable: true
+      file:
+        path: '/config/users_database.yml'
+        search:
+          email: true
+    access_control:
+      default_policy: 'two_factor'
+    regulation:
+      max_retries: 3
+      find_time: '2 minutes'
+      ban_time: '5 minutes'
+    session:
+      cookies:
+        - domain: '__DOMAIN__'
+          authelia_url: 'https://__AUTH_HOST__'
+          name: 'authelia_session'
+          expiration: '1 hour'
+          inactivity: '5 minutes'
+    storage:
+      local:
+        path: '/data/db.sqlite3'
+    notifier:
+      filesystem:
+        filename: '/data/notification.txt'
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: authelia-data
+  namespace: auth
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authelia
+  namespace: auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: authelia
+  template:
+    metadata:
+      labels:
+        app: authelia
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: authelia
+          image: authelia/authelia:4.38
+          ports:
+            - containerPort: 9091
+          envFrom:
+            - secretRef:
+                name: authelia-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /config/configuration.yml
+              subPath: configuration.yml
+              readOnly: true
+            - name: users
+              mountPath: /config/users_database.yml
+              subPath: users_database.yml
+              readOnly: true
+            - name: data
+              mountPath: /data
+          resources:
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: authelia-config
+        - name: users
+          secret:
+            secretName: authelia-users
+        - name: data
+          persistentVolumeClaim:
+            claimName: authelia-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authelia
+  namespace: auth
+spec:
+  selector:
+    app: authelia
+  ports:
+    - port: 9091
+      targetPort: 9091
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authelia
+  namespace: auth
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - __AUTH_HOST__
+      secretName: authelia-tls
+  rules:
+    - host: __AUTH_HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: authelia
+                port:
+                  number: 9091
+
+---
+# Middleware do Traefik: é ele que os outros Ingress referenciam para exigir login.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia
+  namespace: auth
+spec:
+  forwardAuth:
+    address: 'http://authelia.auth.svc.cluster.local:9091/api/authz/forward-auth'
+    trustForwardHeader: true
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
+      - Remote-Name
+      - Remote-Email
