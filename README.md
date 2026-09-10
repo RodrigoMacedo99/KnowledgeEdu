@@ -33,7 +33,7 @@ KnowledgeEdu/
 │   ├── Docker/                # Containers do zero ao deploy em produção
 │   ├── IoT/                   # Internet das Coisas: camadas, protocolos e configuração ponta a ponta
 │   ├── MachineLearning/       # ML do básico ao avançado: estatística, modelos, CV, séries e LLM
-│   └── Servidor/              # Infraestrutura VPS — hardening, Nginx, SSL
+│   └── Servidor/              # Infraestrutura VPS multi-serviço — hardening, Traefik, observabilidade
 │
 └── EN/                        # Documentação em English (em construção)
 ```
@@ -46,8 +46,9 @@ KnowledgeEdu/
 
 | Pasta | Arquivo | O que você vai aprender |
 |---|---|---|
-| `Servidor` | [`VPS_SETUP.md`](PT/Servidor/VPS_SETUP.md) | Configurar uma VPS do zero: SSH, firewall, Nginx, SSL, Docker e segurança |
-| `Servidor` | [`DEPLOY.md`](PT/Servidor/DEPLOY.md) | Subir backend + banco em produção com Docker Compose e CD automático |
+| `Servidor` | [`VPS_SETUP.md`](PT/Servidor/VPS_SETUP.md) | Configurar uma VPS multi-serviço do zero: SSH, firewall, Docker, Traefik (proxy por labels + HTTPS automático), observabilidade e segurança |
+| `Servidor` | [`OBSERVABILIDADE.md`](PT/Servidor/OBSERVABILIDADE.md) | Métricas, logs e dashboards com Prometheus, Grafana, Loki e Grafana Alloy |
+| `Servidor` | [`DEPLOY.md`](PT/Servidor/DEPLOY.md) | Subir backend + banco em produção com Docker Compose e CD automático (exemplo concreto) |
 | `Arquitetura` | [`ARQUITETURA_DE_SOFTWARE.md`](PT/Arquitetura/ARQUITETURA_DE_SOFTWARE.md) | Fundamentos de arquitetura de software para full stack/full cycle com UML e exemplos práticos em Python |
 | `MachineLearning` | [`MACHINE_LEARNING.md`](PT/MachineLearning/MACHINE_LEARNING.md) | Trilha de ML do básico ao avançado: dedução de fórmulas, regressão, árvore, SVM, estatística, visão computacional, séries temporais, LLM e MLOps |
 | `IoT` | [`IOT.md`](PT/IoT/IOT.md) | Arquitetura IoT com camadas, protocolos de comunicação e configuração prática de microcontrolador e servidor |
@@ -78,10 +79,11 @@ Sugestão de ordem para quem está começando:
 3. MachineLearning/MACHINE_LEARNING.md
 4. IoT/IOT.md
 5. Servidor/VPS_SETUP.md
-6. Cyberseguranca/CYBERSEGURANCA.md
-7. Servidor/DEPLOY.md
-8. CI-CD/GITHUB_ACTIONS.md
-9. Agentes/AGENTES_IA.md
+6. Servidor/OBSERVABILIDADE.md
+7. Cyberseguranca/CYBERSEGURANCA.md
+8. Servidor/DEPLOY.md
+9. CI-CD/GITHUB_ACTIONS.md
+10. Agentes/AGENTES_IA.md
 ```
 
 ---
