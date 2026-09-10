@@ -40,6 +40,10 @@ services:
     depends_on:
       - prometheus
       - loki
+    # Vazio por padrão (login normal do Grafana). A etapa 21 preenche este arquivo
+    # com o auth-proxy do Authelia para habilitar login único (SSO) sem 2º login.
+    env_file:
+      - ./grafana.env
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"

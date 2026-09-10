@@ -82,6 +82,8 @@ traefik.http.routers.<router>.middlewares=secure-chain@file,authelia@docker
 ```
 A própria etapa 21 já coloca o **dashboard do Traefik** e o **Grafana** atrás do Authelia por padrão; para os demais (staging, painéis internos) basta a label acima. Tudo com o mesmo login (senha + 2FA TOTP/WebAuthn). Suporta regras de acesso por domínio/grupo e bloqueia força bruta no próprio portal.
 
+O **Grafana** ainda é configurado para **login único (SSO)**: ele confia no cabeçalho `Remote-User` que o Authelia injeta (auth proxy), então o acesso é um login só — sem repetir no Grafana. Isso é seguro porque o Grafana só é alcançável via Traefik+Authelia e a confiança no cabeçalho é restrita à rede `edge`; o login local de admin do Grafana continua como reserva.
+
 > Guarde os códigos de recuperação gerados no cadastro. Sem SMTP configurado, links de registro/reset vão para `/opt/platform/auth/notification.txt`.
 
 ---

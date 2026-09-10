@@ -27,6 +27,8 @@ prompt GRAFANA_HOST "Domínio do Grafana (ex: grafana.seudominio.com)" ""
 # ── 2. Copiar os templates (preservando configs já editadas) ───────────────
 info "Instalando configuração da observabilidade em ${OBS_DIR}..."
 cp -rn "${TEMPLATES_DIR}/observability/." "${OBS_DIR}/"
+# Vazio por padrão (login normal do Grafana); a etapa 21 preenche com o SSO.
+touch "${OBS_DIR}/grafana.env"
 
 # ── 3. Segredos no .env da plataforma ──────────────────────────────────────
 touch "$PLATFORM_ENV"

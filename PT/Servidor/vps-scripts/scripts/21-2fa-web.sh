@@ -146,7 +146,26 @@ info "Protegendo o dashboard do Traefik e o Grafana com o Authelia (padrão)..."
 # Dashboard: troca o basic-auth pelo Authelia, mantendo a allowlist de IP.
 protect_with_authelia "/opt/platform/edge/compose.yml" "dashboard" \
     "admin-allowlist@file,authelia@docker" "Edge/Traefik"
-# Grafana: mantém a cadeia de segurança e adiciona o Authelia na frente.
+# Grafana: login único (SSO) de verdade — confia no cabeçalho Remote-User que o
+# Authelia injeta, evitando um segundo login. Só é seguro porque o Grafana só é
+# alcançável via Traefik+Authelia; a whitelist restringe a confiança à rede edge.
+GRAFANA_ENV="/opt/platform/observability/grafana.env"
+if [[ -f "/opt/platform/observability/compose.yml" ]]; then
+    EDGE_SUBNET="$(docker network inspect edge -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null)"
+    cat > "$GRAFANA_ENV" <<EOF
+# SSO via Authelia (auth proxy) — gerado pela etapa 21.
+GF_AUTH_PROXY_ENABLED=true
+GF_AUTH_PROXY_HEADER_NAME=Remote-User
+GF_AUTH_PROXY_HEADER_PROPERTY=username
+GF_AUTH_PROXY_AUTO_SIGN_UP=true
+GF_AUTH_PROXY_HEADERS=Email:Remote-Email Name:Remote-Name Groups:Remote-Groups
+GF_AUTH_PROXY_ENABLE_LOGIN_TOKEN=true
+GF_AUTH_PROXY_SYNC_TTL=60
+GF_AUTH_PROXY_WHITELIST=${EDGE_SUBNET}
+EOF
+    log "Grafana com login único via Authelia (auth proxy, whitelist ${EDGE_SUBNET:-edge})."
+fi
+# Adiciona o Authelia à frente do Grafana e reaplica (pega o grafana.env acima).
 protect_with_authelia "/opt/platform/observability/compose.yml" "grafana" \
     "secure-chain@file,authelia@docker" "Observabilidade"
 
