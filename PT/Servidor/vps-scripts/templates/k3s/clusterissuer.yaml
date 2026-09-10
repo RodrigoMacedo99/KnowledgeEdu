@@ -1,0 +1,18 @@
+# ClusterIssuer do cert-manager — a "autoridade" que emite os certificados
+# HTTPS (Let's Encrypt) para os Ingress do cluster inteiro.
+# A etapa 25 substitui __EMAIL__ e aplica este arquivo.
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    email: __EMAIL__
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - http01:
+          ingress:
+            class: traefik

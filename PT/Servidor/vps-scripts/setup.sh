@@ -36,6 +36,7 @@ declare -A STEP_NAMES=(
     [22]="Backups automatizados e criptografados"
     [23]="CrowdSec (IPS colaborativo)"
     [24]="Verificação da plataforma (self-check)"
+    [25]="Runtime alternativo: k3s (Kubernetes leve)"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -63,6 +64,7 @@ declare -A STEP_SCRIPTS=(
     [22]="scripts/22-backups.sh"
     [23]="scripts/23-crowdsec.sh"
     [24]="scripts/24-verify.sh"
+    [25]="scripts/25-k3s.sh"
 )
 
 # Etapas que compõem o "setup completo" da infraestrutura base (na ordem).
@@ -82,7 +84,7 @@ show_menu() {
     echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência (${FULL_STEPS[*]})"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 24); do
+    for i in $(seq 1 25); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -164,7 +166,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-9]|2[0-4]) run_step "$choice" ;;
+        [1-9]|1[0-9]|2[0-5]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

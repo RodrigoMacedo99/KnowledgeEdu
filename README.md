@@ -50,6 +50,7 @@ KnowledgeEdu/
 | `Servidor` | [`VPS_SETUP.md`](PT/Servidor/VPS_SETUP.md) | Configurar uma VPS multi-serviço do zero: SSH, firewall, Docker, Traefik (proxy por labels + HTTPS automático), observabilidade e segurança |
 | `Servidor` | [`OBSERVABILIDADE.md`](PT/Servidor/OBSERVABILIDADE.md) | Métricas, logs e dashboards com Prometheus, Grafana, Loki e Grafana Alloy |
 | `Servidor` | [`SEGURANCA.md`](PT/Servidor/SEGURANCA.md) | Defesa em profundidade da VPS: as camadas de segurança, o que cada etapa aplica e o que fazer manualmente para dados sigilosos |
+| `Servidor` | [`K3S.md`](PT/Servidor/K3S.md) | Runtime alternativo: rodar os serviços em Kubernetes leve (k3s) em vez de Docker Compose — quando usar, o que a etapa 25 instala e como publicar |
 | `Servidor` | [`DEPLOY.md`](PT/Servidor/DEPLOY.md) | Subir backend + banco em produção com Docker Compose e CD automático (exemplo concreto) |
 | `Arquitetura` | [`ARQUITETURA_DE_SOFTWARE.md`](PT/Arquitetura/ARQUITETURA_DE_SOFTWARE.md) | Fundamentos de arquitetura de software para full stack/full cycle com UML e exemplos práticos em Python |
 | `MachineLearning` | [`MACHINE_LEARNING.md`](PT/MachineLearning/MACHINE_LEARNING.md) | Trilha de ML do básico ao avançado: dedução de fórmulas, regressão, árvore, SVM, estatística, visão computacional, séries temporais, LLM e MLOps |
