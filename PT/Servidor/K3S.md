@@ -18,7 +18,9 @@ flowchart TB
     k -->|"portas 80/443"| edge
 ```
 
-O ponto que o diagrama deixa claro e que você precisa guardar: **os dois disputam as portas 80 e 443**. Por isso eles são **alternativos como borda pública** — um servidor roda o Docker Compose *ou* o k3s como porta de entrada, não os dois ao mesmo tempo nas mesmas portas. A etapa 25 detecta se o edge Docker já ocupa essas portas e, nesse caso, instala o k3s sem o ingress dele (`--disable traefik`), para nada quebrar; quando você quiser que o k3s assuma a borda, derruba o edge Docker e reativa o Traefik do k3s.
+O ponto que o diagrama deixa claro e que você precisa guardar: **os dois disputam as portas 80 e 443**. Por isso eles são **alternativos como borda pública** — um servidor roda o Docker Compose *ou* o k3s como porta de entrada, não os dois ao mesmo tempo nas mesmas portas.
+
+A forma recomendada de escolher é o **setup guiado**: rode `setup.sh`, escolha a opção **"a"** e responda **Docker** ou **k3s**; ele monta a base endurecida e, em seguida, só a plataforma do runtime escolhido. Se em vez disso você instalar o k3s manualmente (etapa 25) numa máquina onde o edge Docker já ocupa 80/443, a etapa detecta o conflito e oferece instalar o k3s sem o ingress dele (`--disable traefik`), para nada quebrar; quando quiser que o k3s assuma a borda, derruba o edge Docker e reativa o Traefik do k3s.
 
 ---
 

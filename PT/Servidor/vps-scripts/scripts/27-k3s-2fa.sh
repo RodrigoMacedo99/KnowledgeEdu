@@ -19,7 +19,6 @@ AUTHELIA_IMAGE="authelia/authelia:4.38"
 title "27. 2FA/SSO no k3s (Authelia)"
 
 command -v k3s &>/dev/null || die "k3s não instalado — rode a etapa 25 primeiro."
-command -v docker &>/dev/null || die "Docker é usado só para gerar o hash da senha — instale-o (etapa 8) ou gere o hash manualmente."
 $KC get clusterissuer letsencrypt &>/dev/null || warn "ClusterIssuer 'letsencrypt' ausente — o HTTPS do portal só sai com o cert-manager (etapa 25)."
 
 # ── 1. Dados ───────────────────────────────────────────────────────────────
@@ -42,7 +41,14 @@ $KC create secret generic authelia-secrets -n auth \
 
 # ── 4. Base de usuários (com hash argon2 da senha) ─────────────────────────
 info "Gerando hash argon2 da senha..."
-HASH="$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 --password "$ADMIN_PASS" 2>/dev/null | awk '/Digest:/ {print $2}')"
+# Preferimos um pod efêmero do próprio cluster (sem depender do Docker); se o
+# Docker existir, usamos ele por ser mais rápido.
+if command -v docker &>/dev/null; then
+    HASH="$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 --password "$ADMIN_PASS" 2>/dev/null | awk '/Digest:/ {print $2}')"
+else
+    HASH="$($KC run "authelia-hash-$$" --rm -i --restart=Never --image="$AUTHELIA_IMAGE" --command -- \
+        authelia crypto hash generate argon2 --password "$ADMIN_PASS" 2>/dev/null | awk '/Digest:/ {print $2}')"
+fi
 [[ -z "$HASH" ]] && die "Falha ao gerar o hash da senha."
 
 USERS_TMP="$(mktemp)"

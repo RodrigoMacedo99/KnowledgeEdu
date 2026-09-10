@@ -25,7 +25,7 @@
 15. [Adicionar um novo serviço (monorepo multi-container)](#15-adicionar-um-novo-serviço-monorepo-multi-container)
 16. [Resumo: fluxo, portas e domínios](#16-resumo-fluxo-portas-e-domínios)
 
-> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). Os números das etapas batem com as seções deste guia. Além delas: **19** observabilidade + alertas, **20** camadas extras de segurança, **21** 2FA/SSO web (Authelia), **22** backups criptografados, **23** CrowdSec (IPS), **24** verificação da plataforma — tudo detalhado em [`SEGURANCA.md`](./SEGURANCA.md). A identidade do login (MOTD) é genérica e configurada na etapa 3.
+> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). A opção **"a" (setup guiado)** pergunta primeiro qual **runtime** você quer — **Docker Compose**, **k3s** (ver [`K3S.md`](./K3S.md)) ou **só a base endurecida** — e monta a sequência inteira a partir dessa escolha: a base compartilhada, depois a plataforma do runtime, e a verificação no fim. Os números das etapas batem com as seções deste guia. Além delas: **19** observabilidade + alertas, **20** camadas extras de segurança, **21** 2FA/SSO web (Authelia), **22** backups criptografados, **23** CrowdSec (IPS), **24** verificação, **25–27** o runtime k3s — tudo detalhado em [`SEGURANCA.md`](./SEGURANCA.md). A identidade do login (MOTD) é genérica e configurada na etapa 3.
 
 ---
 
