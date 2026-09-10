@@ -1,0 +1,55 @@
+# Configuração do Authelia — portal de login único (SSO) + 2FA para os serviços
+# web, integrado ao Traefik via forward-auth.
+# Copiado para: /opt/platform/auth/configuration.yml
+#
+# Os SEGREDOS não ficam aqui — vêm por variável de ambiente do /opt/platform/.env
+# (AUTHELIA_SESSION_SECRET, AUTHELIA_STORAGE_ENCRYPTION_KEY,
+#  AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET).
+# A etapa 21 substitui __DOMAIN__ e __AUTH_HOST__ pelos seus valores.
+
+theme: 'dark'
+
+server:
+  address: 'tcp4://0.0.0.0:9091/'
+
+log:
+  level: 'info'
+  format: 'json'
+
+totp:
+  issuer: '__DOMAIN__'
+
+# Usuários ficam num arquivo (simples e suficiente para uma VPS).
+authentication_backend:
+  password_reset:
+    disable: true
+  file:
+    path: '/config/users_database.yml'
+    search:
+      email: true
+
+# Política padrão: TODO serviço protegido pelo middleware do Authelia exige 2FA.
+access_control:
+  default_policy: 'two_factor'
+
+# Bloqueia tentativas de força bruta no próprio portal.
+regulation:
+  max_retries: 3
+  find_time: '2 minutes'
+  ban_time: '5 minutes'
+
+session:
+  cookies:
+    - domain: '__DOMAIN__'
+      authelia_url: 'https://__AUTH_HOST__'
+      name: 'authelia_session'
+      expiration: '1 hour'
+      inactivity: '5 minutes'
+
+storage:
+  local:
+    path: '/config/db.sqlite3'
+
+# O bloco 'notifier:' (SMTP ou arquivo) é ANEXADO aqui pela etapa 21, conforme
+# você informe ou não um servidor de e-mail. Sem SMTP, as notificações de
+# registro de 2FA e reset caem em /config/notification.txt.

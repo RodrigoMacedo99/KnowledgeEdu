@@ -25,7 +25,7 @@
 15. [Adicionar um novo serviço (monorepo multi-container)](#15-adicionar-um-novo-serviço-monorepo-multi-container)
 16. [Resumo: fluxo, portas e domínios](#16-resumo-fluxo-portas-e-domínios)
 
-> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). Os números das etapas batem com as seções deste guia; a observabilidade é a etapa 19.
+> Existe um menu que automatiza tudo isto: `PT/Servidor/vps-scripts/setup.sh` (rode como root). A opção **"a" (setup guiado)** pergunta primeiro qual **runtime** você quer — **Docker Compose**, **k3s** (ver [`K3S.md`](./K3S.md)) ou **só a base endurecida** — e monta a sequência inteira a partir dessa escolha: a base compartilhada, depois a plataforma do runtime, e a verificação no fim. Os números das etapas batem com as seções deste guia. Além delas: **19** observabilidade + alertas, **20** camadas extras de segurança, **21** 2FA/SSO web (Authelia), **22** backups criptografados, **23** CrowdSec (IPS), **24** verificação, **25–27** o runtime k3s — tudo detalhado em [`SEGURANCA.md`](./SEGURANCA.md). A identidade do login (MOTD) é genérica e configurada na etapa 3.
 
 ---
 
@@ -895,40 +895,52 @@ APT::Periodic::AutocleanInterval "7";
 
 ---
 
-## 13. Monitoramento e logs
+## 13. Observabilidade e logs
+
+Duas camadas: os **comandos rápidos** de sempre (para um diagnóstico pontual no terminal) e a **stack de observabilidade** (métricas, logs e dashboards centralizados — o jeito de acompanhar uma VPS com vários serviços de forma contínua).
+
+### 13.1 Stack de observabilidade (Prometheus + Grafana + Loki + Alloy)
+
+Subida pela etapa 19 (`19-observability.sh`) em `/opt/platform/observability`, dá:
+
+- **Prometheus** — coleta e guarda métricas (do Traefik, dos containers via cAdvisor e do host via node-exporter).
+- **Grafana** — dashboards; é a única peça acessível de fora, via Traefik e com login.
+- **Loki + Grafana Alloy** — agregam os logs de **todos** os containers automaticamente (o Alloy substitui o Promtail, em EOL desde mar/2026).
+
+O passo a passo, os dashboards recomendados e as consultas ficam no guia dedicado: **[`OBSERVABILIDADE.md`](./OBSERVABILIDADE.md)**.
 
 ```bash
-# Acompanha tentativas de acesso SSH (login, falhas, bans)
-# -f: segue o arquivo em tempo real (ctrl+c para sair)
+sudo bash vps-scripts/scripts/19-observability.sh
+# Depois, acesse https://grafana.seudominio.com (senha admin gerada em /opt/platform/.env)
+```
+
+### 13.2 Comandos rápidos no terminal
+
+```bash
+# Tentativas de acesso SSH (login, falhas, bans)
 sudo tail -f /var/log/auth.log
 
-# Requisições recebidas pelo Nginx (IP, horário, rota, código de resposta)
-sudo tail -f /var/log/nginx/access.log
+# Logs dos containers de um serviço em tempo real
+docker compose -f /opt/apps/PROJETO/production/app/compose.yml logs -f
 
-# Erros do Nginx (configuração inválida, backend inacessível, etc.)
-sudo tail -f /var/log/nginx/error.log
+# Logs do Traefik (útil para depurar emissão de certificado / roteamento)
+docker compose -f /opt/platform/edge/compose.yml logs -f traefik
 
-# Logs dos containers em tempo real
-docker compose -f /opt/apps/sql-challenge/backend/docker-compose.yml logs -f
+# Saúde das stacks da plataforma
+docker compose -f /opt/platform/edge/compose.yml ps
+docker compose -f /opt/platform/observability/compose.yml ps
 
-# Todos os IPs atualmente banidos pelo Fail2Ban
+# IPs banidos pelo Fail2Ban / desbanir um IP
 sudo fail2ban-client status sshd
-
-# Desbanir um IP bloqueado por engano
 sudo fail2ban-client set sshd unbanip IP_A_DESBANIR
 
-# Monitor interativo de CPU, memória e processos da VPS
+# Recursos: host, containers, disco
 htop
-
-# Uso de CPU, memória e rede de cada container em tempo real
 docker stats
-
-# Espaço disponível em disco por partição
-df -h
-
-# Quanto cada projeto está usando de disco
-du -sh /opt/apps/*
+df -h && du -sh /opt/apps/*
 ```
+
+> O menu `13-monitoring.sh` reúne esses comandos (incluindo saúde da plataforma e URLs do Grafana/Traefik) mais um kit de diagnóstico de rede.
 
 ---
 
@@ -997,85 +1009,94 @@ sudo aideinit
 
 ---
 
-## 15. Adicionar um novo projeto
+## 15. Adicionar um novo serviço (monorepo multi-container)
+
+Um serviço é **um monorepo com vários containers** (ex.: web + api + worker + db) descritos por um único `compose.yml` no repositório. Você não escolhe portas nem edita o proxy: informa quais containers são públicos e seus domínios, e o servidor gera as labels do Traefik.
+
+### 15.1 Automatizado (recomendado)
 
 ```bash
-# ─── 1. Usuário de serviço ─────────────────────────────────────────────────
-# Cria usuário isolado sem acesso a login
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid webapps NOME_PROJETO
-
-# ─── 2. Pasta e permissões ────────────────────────────────────────────────
-sudo mkdir -p /opt/apps/NOME_PROJETO
-sudo chown NOME_PROJETO:webapps /opt/apps/NOME_PROJETO
-sudo chmod 750 /opt/apps/NOME_PROJETO
-
-# ─── 3. Repositório ───────────────────────────────────────────────────────
-# Clona como o usuário do projeto para garantir que os arquivos têm o dono correto
-sudo -u NOME_PROJETO git clone URL_DO_REPO /opt/apps/NOME_PROJETO/app
-
-# ─── 4. Variáveis de ambiente ─────────────────────────────────────────────
-sudo nano /opt/apps/NOME_PROJETO/.env
-sudo chown NOME_PROJETO:webapps /opt/apps/NOME_PROJETO/.env
-sudo chmod 640 /opt/apps/NOME_PROJETO/.env
-sudo ln -s /opt/apps/NOME_PROJETO/.env /opt/apps/NOME_PROJETO/app/.env
-
-# ─── 5. Containers ────────────────────────────────────────────────────────
-cd /opt/apps/NOME_PROJETO/app
-docker compose up --build -d
-
-# ─── 6. Nginx ─────────────────────────────────────────────────────────────
-sudo nano /etc/nginx/sites-available/NOME_PROJETO
-sudo ln -s /etc/nginx/sites-available/NOME_PROJETO /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-# ─── 7. SSL ───────────────────────────────────────────────────────────────
-sudo certbot --nginx -d dominio.do.projeto.com
-
-# ─── 8. Backup ────────────────────────────────────────────────────────────
-sudo nano /opt/apps/NOME_PROJETO/backup.sh
-sudo chmod +x /opt/apps/NOME_PROJETO/backup.sh
-sudo crontab -u NOME_PROJETO -e
+sudo bash vps-scripts/scripts/15-new-project.sh
 ```
+
+O script pergunta o nome do serviço, a URL do monorepo, se quer staging e **quais containers são públicos** (nome no compose → porta interna → domínio). Ele então:
+
+1. cria o usuário de serviço isolado e a pasta em `/opt/apps/<servico>`;
+2. clona o monorepo em `production/app` (e `staging/app`);
+3. gera o `compose.override.yml` com as labels do Traefik para cada container público;
+4. grava os metadados que a etapa 17 (CI/CD) vai reutilizar.
+
+### 15.2 O que acontece por baixo
+
+O repositório traz o `compose.yml` da aplicação (sem domínios). O servidor adiciona um `compose.override.yml` com as rotas:
+
+```yaml
+# /opt/apps/<servico>/production/compose.override.yml  (gerado)
+services:
+  api:
+    networks: [edge]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=edge
+      - traefik.http.routers.<servico>-production-api.rule=Host(`api.seudominio.com`)
+      - traefik.http.routers.<servico>-production-api.entrypoints=websecure
+      - traefik.http.routers.<servico>-production-api.tls.certresolver=le
+      - traefik.http.routers.<servico>-production-api.middlewares=secure-chain@file
+      - traefik.http.services.<servico>-production-api.loadbalancer.server.port=3000
+networks:
+  edge:
+    external: true
+```
+
+### 15.3 Subir
+
+```bash
+# Edite o .env do ambiente e aponte o DNS de cada domínio para a VPS, então:
+cd /opt/apps/<servico>/production/app
+docker compose -f compose.yml -f ../compose.override.yml up --build -d
+```
+
+O Traefik detecta os containers, emite o HTTPS e começa a rotear — sem reiniciar nada da plataforma.
+
+> Serviços HTTP **não usam porta de host**. Se precisar expor o banco para um túnel SSH de administração, reserve uma porta com o gerenciador de portas (etapa 18) e publique só em `127.0.0.1` no override.
 
 ---
 
-## 16. Resumo: portas, usuários e domínios
-
-### Projetos
-
-| Projeto | Usuário | Pasta | Porta API | Porta DB |
-|---|---|---|---|---|
-| SQL Challenge | sqlchallenge | /opt/apps/sql-challenge | 3000 | 5432 |
-| Projeto Dois | projetodois | /opt/apps/projeto-dois | 3001 | 5433 |
-| Projeto Três | projetotres | /opt/apps/projeto-tres | 3002 | 5434 |
+## 16. Resumo: fluxo, portas e domínios
 
 ### Portas abertas no firewall
 
 | Porta | Origem | Motivo |
 |---|---|---|
 | 2222/tcp | Qualquer | SSH (porta não-padrão) |
-| 80/tcp | Qualquer | HTTP → redireciona para HTTPS |
-| 443/tcp | Qualquer | HTTPS (Nginx) |
-| 5432/tcp | Seu IP | PostgreSQL (administração remota) |
+| 80/tcp | Qualquer | HTTP → redireciona para HTTPS (Traefik) |
+| 443/tcp | Qualquer | HTTPS (Traefik) |
 
-> Nenhuma porta de API fica exposta diretamente. Todo tráfego externo passa pelo Nginx na 443.
+> **Nenhuma porta de aplicação é exposta.** Só o Traefik publica em 80/443; todo o resto é alcançado por ele pela rede `edge`. Banco/administração, quando necessário, via túnel SSH (bind `127.0.0.1`).
 
 ### Fluxo de uma requisição
 
 ```
 Internet
-    │
+    │  :443 (HTTPS)
     ▼
-VPS :443 (HTTPS)
-    │
-    ▼
-Nginx (reverse proxy)
-    │
-    ├── api.dominio1.com  →  localhost:3000  →  sql-challenge-api
-    ├── api.dominio2.com  →  localhost:3001  →  projeto-dois-api
-    └── api.dominio3.com  →  localhost:3002  →  projeto-tres-api
+Traefik  ── descobre rotas pelas labels dos containers ──┐
+    │                                                    │  métricas
+    ├── app.dominio1.com  →  rede edge → container web    ├─────────► Prometheus ─► Grafana
+    ├── api.dominio1.com  →  rede edge → container api     │             ▲
+    └── grafana.dominio   →  rede edge → Grafana           │   logs      │
+                                                           └─ Alloy ─► Loki ─┘
+   (worker e db ficam só na rede interna de cada serviço — nunca na edge)
 ```
+
+### Camadas
+
+| Camada | Onde | O que roda |
+|---|---|---|
+| Plataforma | `/opt/platform/edge` | Traefik + docker-socket-proxy |
+| Plataforma | `/opt/platform/observability` | Prometheus, Grafana, Loki, Alloy, cAdvisor, node-exporter |
+| Serviços | `/opt/apps/<servico>` | um monorepo por serviço (prod + staging) |
 
 ---
 
-> Escrito para **Ubuntu 24.04 LTS**.
+> Escrito para **Ubuntu 24.04 LTS**. Automação: `PT/Servidor/vps-scripts/`.

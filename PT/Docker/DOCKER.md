@@ -17,8 +17,9 @@
 9. [Variáveis de ambiente e arquivos .env](#9-variáveis-de-ambiente-e-arquivos-env)
 10. [Multi-stage build — imagens menores e mais seguras](#10-multi-stage-build--imagens-menores-e-mais-seguras)
 11. [Boas práticas de produção](#11-boas-práticas-de-produção)
-12. [GitOps com Docker](#12-gitops-com-docker)
-13. [Comandos de referência rápida](#13-comandos-de-referência-rápida)
+12. [Multi-serviço em produção: Traefik e observabilidade](#12-multi-serviço-em-produção-traefik-e-observabilidade)
+13. [GitOps com Docker](#13-gitops-com-docker)
+14. [Comandos de referência rápida](#14-comandos-de-referência-rápida)
 
 ---
 
@@ -629,11 +630,54 @@ docker system df
 
 ---
 
-## 12. GitOps com Docker
+## 12. Multi-serviço em produção: Traefik e observabilidade
+
+Quando uma máquina hospeda **vários serviços** em containers, dois problemas aparecem: (1) como rotear o tráfego para o container certo com HTTPS, sem editar configuração na mão a cada deploy; e (2) como enxergar métricas e logs de tudo num lugar só. As respostas modernas são um **edge proxy nativo de containers** e um **stack de observabilidade**.
+
+### 12.1 Edge proxy por labels (Traefik)
+
+Em vez de um arquivo de proxy por serviço, o **Traefik** descobre as rotas lendo *labels* dos próprios containers. O container não publica porta no host: ele entra numa rede compartilhada (`edge`) e se descreve por labels.
+
+```yaml
+services:
+  api:
+    networks: [internal, edge]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=edge
+      - traefik.http.routers.api.rule=Host(`api.exemplo.com`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le      # HTTPS automático (Let's Encrypt)
+      - traefik.http.services.api.loadbalancer.server.port=3000
+```
+
+- Sem `ports:` — o Traefik alcança o container pela rede `edge`. Só o Traefik publica 80/443.
+- Um monorepo com vários containers públicos declara **um router por container**; banco/worker ficam só na rede interna.
+- O Traefik nunca fala com o socket do Docker direto: usa um **docker-socket-proxy** em modo leitura (dar o socket cru a um container equivale a dar root no host).
+
+### 12.2 Redes: público vs. privado
+
+```yaml
+networks:
+  edge:       { external: true }   # compartilhada: Traefik ↔ containers públicos
+  internal:   { driver: bridge }   # privada do serviço: db e workers vivem aqui
+```
+
+A regra de ouro: **o banco nunca entra na `edge`**. Se não tem label do Traefik e não está na `edge`, não é alcançável de fora — é assim que se mantém a superfície de ataque mínima.
+
+### 12.3 Observabilidade
+
+Um stack padrão para containers: **Prometheus** (métricas, modelo *pull*), **Grafana** (dashboards), **Loki + Grafana Alloy** (logs de todos os containers) e os exporters **cAdvisor** (por container) e **node-exporter** (host). O Traefik já expõe métricas RED (Rate/Errors/Duration) para o Prometheus raspar.
+
+O passo a passo completo — do zero ao Grafana no ar, com hardening e automação — está nos guias de infraestrutura: [`VPS_SETUP.md`](../Servidor/VPS_SETUP.md) e [`OBSERVABILIDADE.md`](../Servidor/OBSERVABILIDADE.md).
+
+---
+
+## 13. GitOps com Docker
 
 GitOps aplica o princípio de que **o Git é a fonte de verdade da infraestrutura**. Em Docker, isso significa que a versão da imagem, o `docker-compose.yml` e as regras de deploy ficam versionadas e auditáveis em repositórios.
 
-### 12.1 Fluxo recomendado (imagem imutável + repositório de infraestrutura)
+### 13.1 Fluxo recomendado (imagem imutável + repositório de infraestrutura)
 
 1. O pipeline de CI gera a imagem com tag imutável (ex.: SHA do commit):
 ```bash
@@ -653,7 +697,7 @@ docker compose pull
 docker compose up -d --remove-orphans
 ```
 
-### 12.2 Estrutura mínima de repositórios
+### 13.2 Estrutura mínima de repositórios
 
 ```text
 app-repo/
@@ -668,7 +712,7 @@ infra-live/
       └── production/
 ```
 
-### 12.3 Segurança no fluxo GitOps
+### 13.3 Segurança no fluxo GitOps
 
 - Use **tags imutáveis** (SHA), nunca `latest`.
 - Proteja a branch principal com **review obrigatório**.
@@ -676,7 +720,7 @@ infra-live/
 - Restrinja segredos a runtime (`.env` no servidor, secret manager, ou variáveis injetadas no pipeline), sem versionar credenciais no Git.
 - Prefira aprovação explícita para produção (`environment protection rules`) antes do merge/deploy.
 
-### 12.4 Exemplo de sincronização pull-based com Docker Compose
+### 13.4 Exemplo de sincronização pull-based com Docker Compose
 
 ```bash
 # /opt/gitops/sync.sh
@@ -695,7 +739,7 @@ Execute esse script por `systemd timer` ou cron. Assim, o servidor sempre conver
 
 ---
 
-## 13. Comandos de referência rápida
+## 14. Comandos de referência rápida
 
 ### Imagens
 

@@ -2,6 +2,8 @@
 
 > Guia completo para subir o backend e o banco de dados em uma VPS, e conectar remotamente para administração.
 
+> **Contexto:** este é o **exemplo concreto** de um serviço específico. O modelo de infraestrutura **genérico e atual** — VPS multi-serviço com **Traefik** (proxy por labels + HTTPS automático), **observabilidade** e serviços como **monorepo multi-container** — está em [`VPS_SETUP.md`](./VPS_SETUP.md). Onde este roteiro menciona Nginx/Certbot ou expor portas no host, **prefira o fluxo com Traefik** do VPS_SETUP: o container entra na rede `edge` com labels e o HTTPS é automático — sem porta publicada e sem Certbot. Para provisionar um serviço novo de forma automatizada, use a etapa 15 (`vps-scripts/scripts/15-new-project.sh`).
+
 ---
 
 ## Índice

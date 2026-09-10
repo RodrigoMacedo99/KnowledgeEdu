@@ -1,0 +1,48 @@
+# Values do chart kube-prometheus-stack (Prometheus + Grafana + Alertmanager +
+# node-exporter + kube-state-metrics) para o k3s. A etapa 26 substitui
+# __GRAFANA_HOST__; a senha do Grafana e o webhook de alerta entram por --set /
+# append no momento da instalação.
+
+grafana:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - __GRAFANA_HOST__
+    tls:
+      - hosts:
+          - __GRAFANA_HOST__
+        secretName: grafana-tls
+  grafana.ini:
+    server:
+      root_url: https://__GRAFANA_HOST__
+    users:
+      allow_sign_up: false
+    auth.anonymous:
+      enabled: false
+  # Datasource de logs (caso você instale o Loki na etapa 26).
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+  resources:
+    limits:
+      memory: 256Mi
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+prometheus-node-exporter:
+  resources:
+    limits:
+      memory: 128Mi

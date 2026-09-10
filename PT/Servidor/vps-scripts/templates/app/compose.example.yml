@@ -12,6 +12,7 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    security_opt: [no-new-privileges:true]
     env_file: [.env]
     networks: [internal]
     # Nenhuma porta publicada: quem expõe é o Traefik, pela rede 'edge' (override).
@@ -26,6 +27,7 @@ services:
   api:
     build: ./api
     restart: unless-stopped
+    security_opt: [no-new-privileges:true]
     env_file: [.env]
     networks: [internal]
     expose: ["3000"]
@@ -41,6 +43,7 @@ services:
   worker:
     build: ./worker
     restart: unless-stopped
+    security_opt: [no-new-privileges:true]
     env_file: [.env]
     networks: [internal]      # sem porta, sem Traefik — processamento em background
     depends_on:
@@ -55,6 +58,7 @@ services:
   db:
     image: postgres:17
     restart: unless-stopped
+    security_opt: [no-new-privileges:true]
     env_file: [.env]
     networks: [internal]      # NUNCA na rede 'edge' — banco não é público
     volumes:

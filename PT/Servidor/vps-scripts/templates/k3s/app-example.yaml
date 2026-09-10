@@ -1,0 +1,83 @@
+# Exemplo de serviço no k3s — Deployment + Service + Ingress.
+# É o equivalente Kubernetes ao compose.yml + labels do Traefik do modelo Docker.
+# Aplique com:  sudo kubectl apply -f app-example.yaml
+#
+# Troque: nome do app, imagem, porta e o domínio no Ingress.
+
+---
+# Deployment: descreve o container e QUANTAS cópias (réplicas) manter no ar.
+# O k3s reinicia sozinho qualquer réplica que morrer (self-healing).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exemplo-api
+  namespace: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exemplo-api
+  template:
+    metadata:
+      labels:
+        app: exemplo-api
+    spec:
+      containers:
+        - name: api
+          image: nginxdemos/hello:plain-text   # troque pela sua imagem
+          ports:
+            - containerPort: 80
+          resources:
+            requests:      # o mínimo garantido
+              cpu: "50m"
+              memory: "64Mi"
+            limits:        # o teto que não pode ultrapassar
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 101
+
+---
+# Service: dá um nome e um IP interno estável ao conjunto de réplicas,
+# distribuindo o tráfego entre elas (balanceamento interno).
+apiVersion: v1
+kind: Service
+metadata:
+  name: exemplo-api
+  namespace: apps
+spec:
+  selector:
+    app: exemplo-api
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+# Ingress: a regra pública — diz ao Traefik do k3s "quem pedir por este domínio
+# vai para este Service", com HTTPS automático via cert-manager (ver K3S.md).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: exemplo-api
+  namespace: apps
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.exemplo.com
+      secretName: exemplo-api-tls
+  rules:
+    - host: api.exemplo.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: exemplo-api
+                port:
+                  number: 80

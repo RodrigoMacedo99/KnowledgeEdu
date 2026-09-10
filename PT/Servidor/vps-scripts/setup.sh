@@ -31,6 +31,14 @@ declare -A STEP_NAMES=(
     [17]="Gerador de CI/CD (GitHub Actions) para um serviço"
     [18]="Gerenciador de portas"
     [19]="Observabilidade (Prometheus, Grafana, Loki, Alloy)"
+    [20]="Camadas extras de segurança (dados sigilosos)"
+    [21]="2FA/SSO nos serviços web (Authelia)"
+    [22]="Backups automatizados e criptografados"
+    [23]="CrowdSec (IPS colaborativo)"
+    [24]="Verificação da plataforma (self-check)"
+    [25]="Runtime alternativo: k3s (Kubernetes leve)"
+    [26]="k3s: observabilidade (Prometheus, Grafana, Loki)"
+    [27]="k3s: 2FA/SSO (Authelia)"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -53,12 +61,24 @@ declare -A STEP_SCRIPTS=(
     [17]="scripts/17-cicd-generator.sh"
     [18]="scripts/18-port-manager.sh"
     [19]="scripts/19-observability.sh"
+    [20]="scripts/20-hardening-extra.sh"
+    [21]="scripts/21-2fa-web.sh"
+    [22]="scripts/22-backups.sh"
+    [23]="scripts/23-crowdsec.sh"
+    [24]="scripts/24-verify.sh"
+    [25]="scripts/25-k3s.sh"
+    [26]="scripts/26-k3s-observability.sh"
+    [27]="scripts/27-k3s-2fa.sh"
 )
 
-# Etapas que compõem o "setup completo" da infraestrutura base (na ordem).
-# As etapas 13 (monitor interativo), 15 (adicionar serviço), 17 (CI/CD) e 18
-# (portas) são sob demanda e ficam fora daqui.
-FULL_STEPS=(1 2 3 4 5 6 7 8 9 10 11 12 14 16 19)
+# O setup guiado pergunta o RUNTIME e monta a sequência a partir daí.
+# BASE_STEPS é a infraestrutura endurecida, comum a qualquer runtime (sem runtime
+# de aplicação). Depois vêm as etapas do runtime escolhido, e a 24 (verificação)
+# fecha. Sob demanda (fora do guiado): 13 (monitor), 15 (serviço), 17 (CI/CD),
+# 18 (portas).
+BASE_STEPS=(1 2 3 4 5 6 7 12 14 16 20 22 23)
+DOCKER_STEPS=(8 9 10 11 19 21)
+K3S_STEPS=(25 26 27)
 
 # ── Menu principal ─────────────────────────────────────────────────────────
 show_menu() {
@@ -68,11 +88,11 @@ show_menu() {
     echo "║              VPS SETUP MANAGER — Ubuntu 24.04 LTS           ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
-    echo -e "  ${BOLD}Setup completo da infraestrutura base:${RESET}"
-    echo -e "    ${YELLOW}a${RESET}) Executar setup completo em sequência (${FULL_STEPS[*]})"
+    echo -e "  ${BOLD}Setup guiado (escolhe o runtime e monta tudo):${RESET}"
+    echo -e "    ${YELLOW}a${RESET}) Executar setup completo (pergunta Docker, k3s ou só a base)"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 19); do
+    for i in $(seq 1 27); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -111,17 +131,36 @@ run_step() {
     read -rp "Pressione Enter para voltar ao menu..." _
 }
 
-# ── Setup completo ────────────────────────────────────────────────────────
+# ── Setup guiado ──────────────────────────────────────────────────────────
 run_full_setup() {
     echo
-    warn "O setup completo executará as etapas de infraestrutura base: ${FULL_STEPS[*]}."
+    echo -e "  ${BOLD}Qual runtime de aplicação você quer nesta VPS?${RESET}"
+    echo -e "    ${YELLOW}1${RESET}) Docker Compose ${GREEN}(recomendado)${RESET} — Traefik, observabilidade e 2FA no modelo Compose"
+    echo -e "    ${YELLOW}2${RESET}) k3s (Kubernetes leve) — a mesma capacidade no modelo Kubernetes"
+    echo -e "    ${YELLOW}3${RESET}) Apenas a base endurecida (sem runtime de aplicação)"
+    echo
+    read -rp "$(echo -e "${YELLOW}Escolha [1]:${RESET} ")" rt
+    rt="${rt:-1}"
+
+    local -a plan=("${BASE_STEPS[@]}")
+    local label=""
+    case "$rt" in
+        1) plan+=("${DOCKER_STEPS[@]}"); label="Docker Compose"; export VPS_RUNTIME="docker" ;;
+        2) plan+=("${K3S_STEPS[@]}");    label="k3s";            export VPS_RUNTIME="k3s" ;;
+        3) label="somente base";         export VPS_RUNTIME="base" ;;
+        *) warn "Opção inválida."; sleep 1; return ;;
+    esac
+    plan+=(24)   # verificação final, sempre por último
+
+    echo
+    warn "Runtime: ${BOLD}${label}${RESET}. Sequência de etapas: ${plan[*]}"
     warn "As etapas 15 (novo serviço) e 17 (CI/CD) são sob demanda — rode-as depois."
     warn "Você será solicitado a fornecer informações em cada etapa."
     echo
-    confirm "Iniciar setup completo?" || return
+    confirm "Iniciar setup completo (${label})?" || return
 
-    local total=${#FULL_STEPS[@]} n=0
-    for i in "${FULL_STEPS[@]}"; do
+    local total=${#plan[@]} n=0
+    for i in "${plan[@]}"; do
         n=$((n + 1))
         echo
         echo -e "${BOLD}${CYAN}════ Etapa ${i} (${n}/${total}): ${STEP_NAMES[$i]} ════${RESET}"
@@ -136,7 +175,7 @@ run_full_setup() {
     done
 
     echo
-    echo -e "${GREEN}${BOLD}══ Setup concluído! ══${RESET}"
+    echo -e "${GREEN}${BOLD}══ Setup (${label}) concluído! ══${RESET}"
     echo
     echo -e "Próximos passos:"
     echo -e "  • Aponte o DNS do dashboard do Traefik e do Grafana para o IP da VPS"
@@ -154,7 +193,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-9]) run_step "$choice" ;;
+        [1-9]|1[0-9]|2[0-7]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

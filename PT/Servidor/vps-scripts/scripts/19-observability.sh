@@ -24,9 +24,37 @@ docker network inspect edge &>/dev/null || die "Rede 'edge' não existe — rode
 # ── 1. Dados de configuração ───────────────────────────────────────────────
 prompt GRAFANA_HOST "Domínio do Grafana (ex: grafana.seudominio.com)" ""
 
+echo
+info "Alertas: o Prometheus já vem com regras de SLO; escolha para onde notificar."
+info "Um webhook cobre Slack/Discord/Teams/Google Chat (incoming webhook)."
+prompt_optional ALERT_WEBHOOK "URL de webhook para alertas (vazio p/ configurar depois)" ""
+
 # ── 2. Copiar os templates (preservando configs já editadas) ───────────────
 info "Instalando configuração da observabilidade em ${OBS_DIR}..."
 cp -rn "${TEMPLATES_DIR}/observability/." "${OBS_DIR}/"
+# Vazio por padrão (login normal do Grafana); a etapa 21 preenche com o SSO.
+touch "${OBS_DIR}/grafana.env"
+
+# Destino dos alertas (webhook), se informado.
+if [[ -n "${ALERT_WEBHOOK}" ]]; then
+    cat > "${OBS_DIR}/alertmanager/alertmanager.yml" <<EOF
+route:
+  receiver: 'default'
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK}'
+        send_resolved: true
+EOF
+    log "Alertmanager configurado para enviar ao webhook."
+else
+    info "Alertas ativos, mas sem destino — defina depois em ${OBS_DIR}/alertmanager/alertmanager.yml."
+fi
 
 # ── 3. Segredos no .env da plataforma ──────────────────────────────────────
 touch "$PLATFORM_ENV"

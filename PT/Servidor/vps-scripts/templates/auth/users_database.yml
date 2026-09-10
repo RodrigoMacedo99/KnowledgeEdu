@@ -1,0 +1,17 @@
+# Base de usuários do Authelia. A etapa 21 gera este arquivo com o hash argon2
+# do usuário admin. Este template é só referência do formato.
+# Copiado/gerado em: /opt/platform/auth/users_database.yml
+#
+# Gere o hash de uma senha com:
+#   docker run --rm authelia/authelia:4.38 \
+#     authelia crypto hash generate argon2 --password 'SUA_SENHA'
+
+users:
+  admin:
+    disabled: false
+    displayname: 'Administrador'
+    # Hash argon2id — NUNCA a senha em texto puro.
+    password: '$argon2id$v=19$m=65536,t=3,p=4$SUBSTITUA_PELO_HASH'
+    email: 'admin@exemplo.com'
+    groups:
+      - 'admins'

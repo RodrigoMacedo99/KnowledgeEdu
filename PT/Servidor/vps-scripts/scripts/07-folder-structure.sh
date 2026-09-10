@@ -39,13 +39,18 @@ chown root:webapps "$APPS_DIR"
 chmod 750 "$APPS_DIR"
 
 # ── /opt/platform — infra compartilhada (Traefik, observabilidade) ─────────
+# Se o grupo docker existir (caminho Docker), ele é o grupo dono para o
+# 'docker compose --env-file' ler o .env; no caminho k3s (sem Docker), root:root.
+PLATFORM_GROUP="root"
+getent group docker &>/dev/null && PLATFORM_GROUP="docker"
+
 if [[ -d "$PLATFORM_DIR" ]]; then
     already_done "Pasta $PLATFORM_DIR"
 else
     info "Criando $PLATFORM_DIR (edge/ e observability/)..."
     mkdir -p "$PLATFORM_DIR/edge" "$PLATFORM_DIR/observability"
 fi
-chown -R root:docker "$PLATFORM_DIR"
+chown -R "root:${PLATFORM_GROUP}" "$PLATFORM_DIR"
 chmod 750 "$PLATFORM_DIR"
 
 # ── .env da plataforma (segredos de Traefik/Grafana) ───────────────────────
@@ -55,8 +60,8 @@ if [[ -f "$PLATFORM_ENV" ]]; then
 else
     info "Criando ${PLATFORM_ENV} (preenchido pelas etapas 9 e 19)..."
     touch "$PLATFORM_ENV"
-    chown root:docker "$PLATFORM_ENV"
-    # 640: só root escreve; grupo docker lê (docker compose --env-file).
+    chown "root:${PLATFORM_GROUP}" "$PLATFORM_ENV"
+    # 640: só root escreve; o grupo lê (docker compose --env-file, quando houver).
     chmod 640 "$PLATFORM_ENV"
 fi
 

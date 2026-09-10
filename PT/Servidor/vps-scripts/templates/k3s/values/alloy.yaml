@@ -1,0 +1,50 @@
+# Values do chart grafana/alloy — coleta os logs de todos os pods e envia ao
+# Loki. O chart cria o ServiceAccount/RBAC (rbac.create) para ler os pods.
+
+controller:
+  type: daemonset
+
+rbac:
+  create: true
+
+alloy:
+  configMap:
+    content: |-
+      logging {
+        level  = "info"
+        format = "logfmt"
+      }
+
+      // Descobre todos os pods do cluster.
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // Enriquece cada log com namespace, pod e container.
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+      }
+
+      // Lê os logs dos pods (via API do Kubernetes) e envia ao Loki.
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki:3100/loki/api/v1/push"
+        }
+      }
