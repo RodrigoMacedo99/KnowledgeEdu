@@ -38,9 +38,16 @@ AGE_RECIPIENT=""
 if [[ "$AGE_CHOICE" == "1" ]]; then
     prompt AGE_RECIPIENT "Chave pública age (age1...)" ""
 else
-    TMPKEY="$(mktemp)"
-    age-keygen -o "$TMPKEY" 2>/dev/null
-    AGE_RECIPIENT="$(grep -oE 'age1[0-9a-z]+' "$TMPKEY" | head -1)"
+    # age-keygen SE RECUSA a sobrescrever um arquivo existente — então geramos
+    # num diretório temporário e num caminho que ainda não existe (não usar
+    # 'mktemp' de arquivo, que cria o arquivo vazio e faria o age-keygen falhar).
+    TMPKEY_DIR="$(mktemp -d)"
+    TMPKEY="${TMPKEY_DIR}/age.key"
+    if ! age-keygen -o "$TMPKEY"; then
+        rm -rf "$TMPKEY_DIR"
+        die "Falha ao gerar o par de chaves age."
+    fi
+    AGE_RECIPIENT="$(grep -m1 -oE 'age1[0-9a-z]+' "$TMPKEY" || true)"
     echo
     echo -e "${BOLD}${RED}══ GUARDE ESTA CHAVE PRIVADA OFF-SITE (some da tela depois) ══${RESET}"
     cat "$TMPKEY"
@@ -49,6 +56,7 @@ else
     warn "Sem esta chave privada, NÃO há como restaurar os backups."
     read -rp "$(echo -e "${YELLOW}Copiei a chave privada para um local seguro. Enter para apagá-la do servidor...${RESET} ")" _
     shred -u "$TMPKEY" 2>/dev/null || rm -f "$TMPKEY"
+    rmdir "$TMPKEY_DIR" 2>/dev/null || true
 fi
 [[ -z "$AGE_RECIPIENT" ]] && die "Chave pública age não definida."
 

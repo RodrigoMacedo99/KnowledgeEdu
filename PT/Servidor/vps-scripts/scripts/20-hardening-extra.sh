@@ -217,10 +217,15 @@ else
 fi
 
 # ── 9. [OPT-IN] userns-remap no Docker ─────────────────────────────────────
+# Só faz sentido perguntar se o Docker já existe. No fluxo guiado, esta etapa
+# roda antes da etapa 8 (Docker) — então, sem Docker, pulamos e apenas avisamos.
 echo
-warn "userns-remap mapeia o root do container para um usuário sem privilégio no host"
-warn "(mitiga fugas de container), mas pode quebrar bind mounts e volumes existentes."
-if confirm "Ativar userns-remap no Docker? (recomendado só em setup novo)"; then
+if ! command -v docker &>/dev/null; then
+    info "Docker ainda não instalado — pulando userns-remap (é uma opção do Docker)."
+    info "Se quiser ativá-lo, rode esta etapa (20) de novo APÓS a etapa 8."
+elif { warn "userns-remap mapeia o root do container para um usuário sem privilégio no host"; \
+       warn "(mitiga fugas de container), mas pode quebrar bind mounts e volumes existentes."; \
+       confirm "Ativar userns-remap no Docker? (recomendado só em setup novo)"; }; then
     DAEMON_JSON="/etc/docker/daemon.json"
     if grep -q '"userns-remap"' "$DAEMON_JSON" 2>/dev/null; then
         already_done "userns-remap"
