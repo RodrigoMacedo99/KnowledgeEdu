@@ -40,6 +40,7 @@ declare -A STEP_NAMES=(
     [26]="k3s: observabilidade (Prometheus, Grafana, Loki)"
     [27]="k3s: 2FA/SSO (Authelia)"
     [28]="Criar usuário operador (além do admin)"
+    [29]="k3s: adicionar serviço (monorepo)"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -71,6 +72,7 @@ declare -A STEP_SCRIPTS=(
     [26]="scripts/26-k3s-observability.sh"
     [27]="scripts/27-k3s-2fa.sh"
     [28]="scripts/28-operator-user.sh"
+    [29]="scripts/29-k3s-new-project.sh"
 )
 
 # O setup guiado pergunta o RUNTIME e monta a sequência a partir daí.
@@ -94,7 +96,7 @@ show_menu() {
     echo -e "    ${YELLOW}a${RESET}) Executar setup completo (pergunta Docker, k3s ou só a base)"
     echo
     echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 28); do
+    for i in $(seq 1 29); do
         printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
     done
     echo
@@ -195,7 +197,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-9]|2[0-8]) run_step "$choice" ;;
+        [1-9]|1[0-9]|2[0-9]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *) warn "Opção inválida." ; sleep 1 ;;
     esac

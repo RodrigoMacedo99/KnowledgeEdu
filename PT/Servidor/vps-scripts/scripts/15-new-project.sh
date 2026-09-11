@@ -22,7 +22,12 @@ init_log "15-new-project"
 
 title "15. Adicionar novo serviço (monorepo multi-container)"
 
-docker network inspect edge &>/dev/null || die "Rede 'edge' não existe — rode as etapas 8 e 9 primeiro."
+if ! docker network inspect edge &>/dev/null; then
+    if command -v k3s &>/dev/null; then
+        die "Esta etapa é do runtime Docker. Você está no k3s — use a etapa 29 (Adicionar serviço no k3s)."
+    fi
+    die "Rede 'edge' não existe — rode as etapas 8 e 9 primeiro."
+fi
 
 prompt PROJECT_NAME "Nome do serviço (sem espaços, minúsculas)" ""
 prompt_optional REPO_URL "URL do monorepo git (deixe vazio para clonar depois)" ""
