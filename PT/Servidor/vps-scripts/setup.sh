@@ -19,25 +19,25 @@ declare -A STEP_NAMES=(
     [5]="Firewall (UFW)"
     [6]="Grupos e usuários por projeto"
     [7]="Estrutura de pastas e permissões"
-    [8]="Docker (instalação, redes edge/observability, segurança)"
-    [9]="Edge proxy (Traefik) — porta de entrada dos serviços"
-    [10]="TLS/HTTPS (status e diagnóstico — automático via Traefik)"
+    [8]="Docker (instalação, redes e segurança)"
+    [9]="Edge proxy (Traefik)"
+    [10]="TLS/HTTPS (status e diagnóstico)"
     [11]="Segurança do PostgreSQL e backup"
     [12]="Atualizações automáticas de segurança"
     [13]="Monitoramento e logs"
     [14]="Hardening contínuo do kernel e auditoria"
-    [15]="Adicionar novo serviço (monorepo multi-container)"
+    [15]="Adicionar novo serviço (monorepo)"
     [16]="NTP — Sincronização de tempo (Chrony)"
-    [17]="Gerador de CI/CD (GitHub Actions) para um serviço"
+    [17]="Gerador de CI/CD (GitHub Actions)"
     [18]="Gerenciador de portas"
-    [19]="Observabilidade (Prometheus, Grafana, Loki, Alloy)"
-    [20]="Camadas extras de segurança (dados sigilosos)"
+    [19]="Observabilidade (métricas, logs, alertas)"
+    [20]="Camadas extras de segurança"
     [21]="2FA/SSO nos serviços web (Authelia)"
     [22]="Backups automatizados e criptografados"
     [23]="CrowdSec (IPS colaborativo)"
     [24]="Verificação da plataforma (self-check)"
-    [25]="Runtime alternativo: k3s (Kubernetes leve)"
-    [26]="k3s: observabilidade (Prometheus, Grafana, Loki)"
+    [25]="Runtime alternativo: k3s"
+    [26]="k3s: observabilidade"
     [27]="k3s: 2FA/SSO (Authelia)"
     [28]="Criar usuário operador (além do admin)"
     [29]="k3s: adicionar serviço (monorepo)"
@@ -84,25 +84,97 @@ BASE_STEPS=(1 2 3 4 5 6 7 12 14 16 20 22 23)
 DOCKER_STEPS=(8 9 10 11 19 21)
 K3S_STEPS=(25 26 27)
 
+# ── Banner ─────────────────────────────────────────────────────────────────
+# Usa figlet/toilet se estiverem instalados (visual "VPS MANAGER" completo);
+# sem eles, cai num título simples — nunca tenta desenhar ASCII art à mão
+# (um pixel torto deixaria o menu pior do que um título liso).
+print_banner() {
+    echo -e "${CYAN}${BOLD}"
+    if command -v toilet &>/dev/null; then
+        toilet -f mono12 -F border "VPS MANAGER" 2>/dev/null || echo "VPS MANAGER"
+    elif command -v figlet &>/dev/null; then
+        figlet -f standard "VPS MANAGER" 2>/dev/null || echo "VPS MANAGER"
+    else
+        echo "██  VPS MANAGER  ██"
+    fi
+    echo -e "${RESET}"
+    echo -e "  ${CYAN}SEU SERVIDOR${RESET} • ${GREEN}SEU CONTROLE${RESET} • ${YELLOW}MAIS SEGURANÇA${RESET}"
+    echo -e "  ${BOLD}SETUP${RESET} · ${BOLD}CONFIGURAÇÃO${RESET} · ${BOLD}MONITORAMENTO${RESET} · ${BOLD}KUBERNETES${RESET}"
+}
+
 # ── Menu principal ─────────────────────────────────────────────────────────
+# Duas colunas lado a lado quando o terminal é largo o bastante; senão, cai
+# para uma coluna só (mesmo conteúdo, sem quebrar a borda da caixa). A largura
+# é medida em CARACTERES (${#var}), não bytes — com acentuação (ção, ã, é...)
+# medir por bytes desalinharia as bordas entre linhas.
 show_menu() {
     clear
-    echo -e "${BOLD}${CYAN}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║              VPS SETUP MANAGER — Ubuntu 24.04 LTS           ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
-    echo -e "${RESET}"
-    echo -e "  ${BOLD}Setup guiado (escolhe o runtime e monta tudo):${RESET}"
-    echo -e "    ${YELLOW}a${RESET}) Executar setup completo (pergunta Docker, k3s ou só a base)"
+    print_banner
     echo
-    echo -e "  ${BOLD}Etapas individuais:${RESET}"
-    for i in $(seq 1 29); do
-        printf "    ${YELLOW}%2d${RESET}) %s\n" "$i" "${STEP_NAMES[$i]}"
+
+    # Linhas da coluna esquerda: cabeçalho do setup guiado + etapas 1–14.
+    local -a left=(
+        "${GREEN}⚙${RESET}  ${BOLD}Setup guiado${RESET} (escolhe o runtime e monta tudo):"
+        "   ${YELLOW}a)${RESET} Executar setup completo"
+        ""
+        "${GREEN}▤${RESET}  ${BOLD}Etapas individuais:${RESET}"
+        ""
+    )
+    local -a left_plain=(
+        "  Setup guiado (escolhe o runtime e monta tudo):"
+        "   a) Executar setup completo"
+        ""
+        "  Etapas individuais:"
+        ""
+    )
+    local i plain
+    for i in $(seq 1 14); do
+        plain="$(printf '%2d) %s' "$i" "${STEP_NAMES[$i]}")"
+        left_plain+=("$plain")
+        left+=("$(printf '%s%2d)%s %s' "$YELLOW" "$i" "$RESET" "${STEP_NAMES[$i]}")")
     done
-    echo
-    echo -e "    ${YELLOW} 0${RESET}) Sair"
+
+    # Coluna direita: etapas 15–29 + Sair.
+    local -a right=() right_plain=()
+    for i in $(seq 15 29); do
+        plain="$(printf '%2d) %s' "$i" "${STEP_NAMES[$i]}")"
+        right_plain+=("$plain")
+        right+=("$(printf '%s%2d)%s %s' "$YELLOW" "$i" "$RESET" "${STEP_NAMES[$i]}")")
+    done
+    right_plain+=("" " 0) Sair")
+    right+=("" "$(printf '%s%2d)%s Sair' "$YELLOW" 0 "$RESET")")
+
+    # Largura de cada coluna = maior linha PLANA (sem cor) daquela coluna.
+    local lw=0 rw=0 n
+    for plain in "${left_plain[@]}"; do (( ${#plain} > lw )) && lw=${#plain}; done
+    for plain in "${right_plain[@]}"; do (( ${#plain} > rw )) && rw=${#plain}; done
+
+    local term_width box_width
+    term_width="$(tput cols 2>/dev/null || echo 80)"
+    box_width=$(( lw + rw + 3 ))   # +3 = margem entre colunas ("  ")
+
+    if (( term_width >= box_width + 4 )); then
+        # ── Layout de duas colunas ──────────────────────────────────────────
+        local rows=${#left[@]}
+        (( ${#right[@]} > rows )) && rows=${#right[@]}
+        for (( n=0; n<rows; n++ )); do
+            local lp="${left_plain[n]:-}" ltext="${left[n]:-}"
+            local rtext="${right[n]:-}"
+            local pad=$(( lw - ${#lp} ))
+            (( pad < 0 )) && pad=0
+            printf '%s' "$ltext"
+            printf '%*s' "$pad" ''
+            echo -e "   ${rtext}"
+        done
+    else
+        # ── Fallback: terminal estreito — uma coluna só, sem quebrar nada ──
+        for n in "${!left[@]}"; do echo -e "${left[n]}"; done
+        for n in "${!right[@]}"; do echo -e "${right[n]}"; done
+    fi
+
     echo
     echo -e "  Log em: ${CYAN}/var/log/vps-setup.log${RESET}"
+    echo -e "  ${CYAN}INFRAESTRUTURA${RESET} • ${GREEN}AUTOMAÇÃO${RESET} • ${YELLOW}LIBERDADE${RESET}"
     echo
 }
 
