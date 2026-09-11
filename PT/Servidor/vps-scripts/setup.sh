@@ -277,10 +277,13 @@ get_choice_gum() {
     # Extrai o identificador (a, 0 ou NN) do início da linha. Antes, limpa
     # qualquer caractere que não seja letra/dígito/espaço logo no começo —
     # cobre o caso de um indicador de cursor (ex.: '▶') vazar para o texto
-    # devolvido pelo gum, que faria a regex abaixo nunca bater.
+    # devolvido pelo gum, que faria a regex abaixo nunca bater. O ')' no fim
+    # é OPCIONAL: se o usuário digitar o identificador para filtrar (ex.:
+    # "0") e apertar Enter, o gum pode devolver só o texto digitado — sem o
+    # resto da linha original ("  Sair") — e ainda assim precisa funcionar.
     local clean
     clean="$(printf '%s' "$selection" | sed -E 's/^[^a-zA-Z0-9[:space:]]*//')"
-    if [[ "$clean" =~ ^[[:space:]]*([aA]|[0-9]+)\) ]]; then
+    if [[ "$clean" =~ ^[[:space:]]*([aA]|[0-9]+)\)? ]]; then
         echo "${BASH_REMATCH[1],,}"   # ,, = minúsculo (normaliza 'A' -> 'a')
     else
         # Não deveria acontecer — mas se acontecer, mostra o texto bruto
