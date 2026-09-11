@@ -239,8 +239,14 @@ build_menu_lines() {
 
 get_choice_gum() {
     clear
-    print_banner
-    echo
+    # O 'gum filter' assume a tela inteira (tela alternativa, como o vim) —
+    # qualquer coisa impressa ANTES dele (a caixa do banner) desaparece assim
+    # que ele abre. Por isso a marca vai no --header: fica DENTRO da mesma
+    # tela do filter, ao lado da lista, sem desaparecer.
+    local title="VPS MANAGER"
+    [[ -s "$MENU_BANNER_FILE" ]] && title="$(head -1 "$MENU_BANNER_FILE")"
+    local header_text="${title}  •  SEU SERVIDOR · SEU CONTROLE · MAIS SEGURANÇA"
+
     # Flags reduzidas às mais básicas e estáveis do gum filter — uma flag não
     # suportada pela versão instalada faz o comando falhar (gum encerra sem
     # nada no stdout), o que passaria batido sem qualquer aviso.
@@ -248,7 +254,7 @@ get_choice_gum() {
     selection="$(build_menu_lines | gum filter \
         --placeholder 'Digite para buscar… (setas navegam, Enter escolhe, Ctrl+C sai)' \
         --height 20 \
-        --header 'ETAPAS — busque por nome ou número')"
+        --header "$header_text")"
     status=$?
 
     # ── MODO DEBUG TEMPORÁRIO ────────────────────────────────────────────
