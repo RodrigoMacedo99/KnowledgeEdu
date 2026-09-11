@@ -78,7 +78,10 @@ chmod 700 "${BK_DIR}/backup.sh"
 
 # ── 5. Cron diário ─────────────────────────────────────────────────────────
 CRON_LINE="0 ${BACKUP_HOUR} * * * ${BK_DIR}/backup.sh >> ${BK_DIR}/backup.log 2>&1"
-( crontab -l 2>/dev/null | grep -vF "${BK_DIR}/backup.sh"; echo "$CRON_LINE" ) | crontab -
+# Numa VPS nova o root não tem crontab, então 'crontab -l' falha; o '|| true'
+# evita que o set -e/pipefail derrube a etapa. Removemos qualquer linha antiga
+# do nosso backup e reanexamos a atual (idempotente).
+( crontab -l 2>/dev/null | grep -vF "${BK_DIR}/backup.sh" || true; echo "$CRON_LINE" ) | crontab -
 log "Cron de backup diário às ${BACKUP_HOUR}h configurado."
 
 # ── 6. Teste imediato ──────────────────────────────────────────────────────
