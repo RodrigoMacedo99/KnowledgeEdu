@@ -241,18 +241,35 @@ get_choice_gum() {
     clear
     print_banner
     echo
-    local selection
+    # Flags reduzidas às mais básicas e estáveis do gum filter — uma flag não
+    # suportada pela versão instalada faz o comando falhar (gum encerra sem
+    # nada no stdout), o que passaria batido sem qualquer aviso.
+    local selection status
     selection="$(build_menu_lines | gum filter \
-        --placeholder 'Digite para buscar… (↑↓ navega, Enter escolhe, Esc cancela)' \
-        --height 18 --width 90 \
-        --indicator '▶' \
-        --indicator.foreground "$G_HILITE" \
-        --match.foreground "$G_MAGENTA" \
-        --header 'ETAPAS — busque por nome ou número' \
-        --header.foreground "$G_BORDER")"
-    [[ -z "$selection" ]] && { echo ""; return; }
-    selection="${selection%%)*}"
-    echo "${selection// /}"
+        --placeholder 'Digite para buscar… (setas navegam, Enter escolhe, Ctrl+C sai)' \
+        --height 20 \
+        --header 'ETAPAS — busque por nome ou número')"
+    status=$?
+    # status != 0 = cancelado (Ctrl+C) ou erro do gum; string vazia = nada
+    # selecionado. Nos dois casos, devolve vazio — o chamador só redesenha o
+    # menu, sem acusar "opção inválida" por algo que não foi uma escolha real.
+    if (( status != 0 )) || [[ -z "$selection" ]]; then
+        return
+    fi
+    # Extrai o identificador (a, 0 ou NN) do início da linha. Antes, limpa
+    # qualquer caractere que não seja letra/dígito/espaço logo no começo —
+    # cobre o caso de um indicador de cursor (ex.: '▶') vazar para o texto
+    # devolvido pelo gum, que faria a regex abaixo nunca bater.
+    local clean
+    clean="$(printf '%s' "$selection" | sed -E 's/^[^a-zA-Z0-9[:space:]]*//')"
+    if [[ "$clean" =~ ^[[:space:]]*([aA]|[0-9]+)\) ]]; then
+        echo "${BASH_REMATCH[1],,}"   # ,, = minúsculo (normaliza 'A' -> 'a')
+    else
+        # Não deveria acontecer — mas se acontecer, mostra o texto bruto
+        # recebido (em vez de só "inválido") para dar pra diagnosticar.
+        # Vai para stderr: esta função tem seu stdout capturado pelo chamador.
+        echo -e "${YELLOW}[!] Não entendi a seleção do menu: [${selection}]${RESET}" >&2
+    fi
 }
 
 # ── Executar uma etapa ────────────────────────────────────────────────────
@@ -386,7 +403,7 @@ run_full_setup() {
 while true; do
     if (( HAS_GUM )); then
         choice="$(get_choice_gum)"
-        [[ -z "$choice" ]] && continue   # Esc/Ctrl+C no gum filter — só redesenha
+        [[ -z "$choice" ]] && continue   # cancelado, ou seleção não reconhecida — só redesenha
     else
         show_menu_plain
         read -rp "$(echo -e "${YELLOW}Escolha uma opção:${RESET} ")" choice
