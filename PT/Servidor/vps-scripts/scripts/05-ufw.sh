@@ -25,10 +25,12 @@ ufw allow 443/tcp comment 'HTTPS'
 # ── PostgreSQL — apenas IP admin (opcional) ────────────────────────────────
 echo
 if confirm "Liberar porta PostgreSQL (5432) para um IP específico?"; then
-    prompt ADMIN_IP "Seu IP público (deixe vazio para pular)"
+    prompt_optional ADMIN_IP "Seu IP público (deixe vazio para pular)"
     if [[ -n "${ADMIN_IP:-}" ]]; then
         ufw allow from "$ADMIN_IP" to any port 5432 proto tcp comment 'PostgreSQL admin'
         log "PostgreSQL liberado para $ADMIN_IP"
+    else
+        info "Nenhum IP informado — porta 5432 não será aberta (prefira túnel SSH: ssh -L 5432:localhost:5432)."
     fi
 fi
 
@@ -45,31 +47,12 @@ fi
 info "Regras ativas:"
 ufw status verbose
 
-# ── Impedir que o Docker contorne o UFW ───────────────────────────────────
-DAEMON_JSON="/etc/docker/daemon.json"
-if command -v docker &>/dev/null; then
-    if [[ -f "$DAEMON_JSON" ]] && grep -q '"iptables": false' "$DAEMON_JSON"; then
-        already_done "daemon.json (iptables: false)"
-    else
-        info "Configurando Docker para não contornar o UFW..."
-        if [[ -f "$DAEMON_JSON" ]]; then
-            cp "$DAEMON_JSON" "${DAEMON_JSON}.bak"
-        fi
-        cat > "$DAEMON_JSON" <<'EOF'
-{
-  "iptables": false,
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  }
-}
-EOF
-        systemctl restart docker
-        log "Docker reconfigurado: iptables=false"
-    fi
-else
-    info "Docker não instalado ainda — a configuração de iptables será feita na etapa 8."
-fi
+# ── Docker × UFW ────────────────────────────────────────────────────────────
+# A convivência Docker/UFW é tratada na etapa 8 (daemon.json com iptables
+# gerenciado — necessário para o Traefik publicar 80/443 — e o ufw-docker como
+# defesa em profundidade). Esta etapa NÃO mexe no daemon.json de propósito: no
+# modelo com Traefik, forçar 'iptables: false' aqui quebraria a publicação das
+# portas. Ver seções 5.5 e 8 do VPS_SETUP.md.
+info "Docker × UFW é configurado na etapa 8 (não altero o daemon.json aqui)."
 
 step_done "Firewall UFW"
