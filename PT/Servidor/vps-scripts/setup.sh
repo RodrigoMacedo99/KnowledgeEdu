@@ -250,6 +250,24 @@ get_choice_gum() {
         --height 20 \
         --header 'ETAPAS — busque por nome ou número')"
     status=$?
+
+    # ── MODO DEBUG TEMPORÁRIO ────────────────────────────────────────────
+    # Mostra byte a byte (via 'cat -A', que revela espaços, tabs e '$' no
+    # fim da linha) o que o gum devolveu, e PAUSA até você apertar Enter —
+    # assim o próximo 'clear' não apaga antes de você conseguir ler/copiar.
+    if [[ -n "${VPS_DEBUG_GUM:-}" ]]; then
+        {
+            echo "── DEBUG gum filter ──"
+            echo "status=${status}"
+            echo "selection (cat -A): "
+            printf '%s' "$selection" | cat -A
+            echo
+            echo "──────────────────────"
+        } >&2
+        read -rp "Pressione Enter para continuar (modo debug)..." _ >&2
+    fi
+    # ─────────────────────────────────────────────────────────────────────
+
     # status != 0 = cancelado (Ctrl+C) ou erro do gum; string vazia = nada
     # selecionado. Nos dois casos, devolve vazio — o chamador só redesenha o
     # menu, sem acusar "opção inválida" por algo que não foi uma escolha real.
@@ -266,9 +284,10 @@ get_choice_gum() {
         echo "${BASH_REMATCH[1],,}"   # ,, = minúsculo (normaliza 'A' -> 'a')
     else
         # Não deveria acontecer — mas se acontecer, mostra o texto bruto
-        # recebido (em vez de só "inválido") para dar pra diagnosticar.
+        # recebido (em vez de só "inválido") e PAUSA, para dar pra copiar.
         # Vai para stderr: esta função tem seu stdout capturado pelo chamador.
         echo -e "${YELLOW}[!] Não entendi a seleção do menu: [${selection}]${RESET}" >&2
+        read -rp "Pressione Enter para continuar..." _ >&2
     fi
 }
 
@@ -413,6 +432,19 @@ while true; do
         a|A) run_full_setup ;;
         [1-9]|1[0-9]|2[0-9]) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
-        *) warn "Opção inválida." ; sleep 1 ;;
+        *)
+            # Mostra o valor recebido (entre colchetes) — se algo estiver
+            # vazando aqui, agora dá para ver exatamente o quê. E, para nunca
+            # mais travar sem saída: digite a opção na mão, sem Ctrl+C.
+            warn "Opção inválida: [${choice}]"
+            read -rp "$(echo -e "${YELLOW}Digite a opção manualmente (número, 'a' ou '0') ou Enter para voltar ao menu: ${RESET}")" manual
+            case "${manual:-}" in
+                a|A) run_full_setup ;;
+                [1-9]|1[0-9]|2[0-9]) run_step "$manual" ;;
+                0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
+                "") : ;;   # Enter em branco — só volta ao menu
+                *) warn "Ainda inválido — voltando ao menu." ; sleep 1 ;;
+            esac
+            ;;
     esac
 done
