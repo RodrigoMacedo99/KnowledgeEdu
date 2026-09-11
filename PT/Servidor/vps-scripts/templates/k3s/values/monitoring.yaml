@@ -28,9 +28,18 @@ grafana:
       type: loki
       access: proxy
       url: http://loki:3100
+  # O Grafana tenta atualizar plugins embutidos na imagem em segundo plano
+  # (falha sempre, pois são read-only — não é erro fatal, só ruído no log).
+  # Desligamos para não gastar CPU/memória à toa nesse processo.
+  env:
+    GF_PLUGINS_PREINSTALL_DISABLED: "true"
   resources:
-    limits:
+    requests:
       memory: 256Mi
+    limits:
+      # 256Mi era insuficiente e causava OOMKilled ao navegar entre dashboards
+      # (o Grafana soma o processo principal + backend de busca + plugins).
+      memory: 512Mi
 
 prometheus:
   prometheusSpec:
