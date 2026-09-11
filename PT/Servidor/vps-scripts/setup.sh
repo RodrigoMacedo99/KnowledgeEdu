@@ -40,6 +40,16 @@ G_ACCENT=42
 G_HILITE=214
 G_MAGENTA=213
 
+# 'clear' sozinho só limpa a tela VISÍVEL — o histórico de rolagem continua lá
+# (dá pra rolar e ver comandos/tentativas anteriores). '\033[3J' purga também
+# o scrollback, suportado pela grande maioria dos terminais modernos (xterm,
+# GNOME Terminal, Windows Terminal, iTerm2...); em terminais sem suporte, essa
+# sequência é simplesmente ignorada, sem quebrar nada.
+clear_screen() {
+    clear
+    printf '\033[3J'
+}
+
 # ── Ordem de execução recomendada ─────────────────────────────────────────
 declare -A STEP_NAMES=(
     [1]="Atualização do sistema e pacotes essenciais"
@@ -159,7 +169,7 @@ print_banner() {
 # é medida em CARACTERES (${#var}), não bytes — com acentuação (ção, ã, é...)
 # medir por bytes desalinharia as bordas entre linhas.
 show_menu_plain() {
-    clear
+    clear_screen
     print_banner
     echo
 
@@ -238,7 +248,7 @@ build_menu_lines() {
 }
 
 get_choice_gum() {
-    clear
+    clear_screen
     # O 'gum filter' assume a tela inteira (tela alternativa, como o vim) —
     # qualquer coisa impressa ANTES dele (a caixa do banner) desaparece assim
     # que ele abre. Por isso a marca vai no --header: fica DENTRO da mesma
