@@ -162,9 +162,13 @@ show_menu() {
             local rtext="${right[n]:-}"
             local pad=$(( lw - ${#lp} ))
             (( pad < 0 )) && pad=0
-            printf '%s' "$ltext"
+            # '%b' interpreta as sequências \033[...m guardadas como texto nas
+            # cores (RED/GREEN/... em common.sh usam aspas simples — só viram
+            # cor de verdade via 'echo -e' ou 'printf %b'; '%s' as imprimiria
+            # literalmente, que foi o bug visto em produção).
+            printf '%b' "$ltext"
             printf '%*s' "$pad" ''
-            echo -e "   ${rtext}"
+            printf '%b\n' "   ${rtext}"
         done
     else
         # ── Fallback: terminal estreito — uma coluna só, sem quebrar nada ──
