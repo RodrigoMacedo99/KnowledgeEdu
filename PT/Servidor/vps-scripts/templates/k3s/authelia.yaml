@@ -76,6 +76,10 @@ spec:
       labels:
         app: authelia
     spec:
+      # O Kubernetes injeta env vars por Service (AUTHELIA_PORT, AUTHELIA_SERVICE_*...)
+      # e o Authelia lê tudo que começa com AUTHELIA_ como config, causando conflito
+      # com server.address. Desligar os service links evita isso.
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
