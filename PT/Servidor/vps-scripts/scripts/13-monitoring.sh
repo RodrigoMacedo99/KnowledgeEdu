@@ -12,8 +12,8 @@ title "13. Monitoramento e logs"
 # ── Menu de ações de monitoramento ────────────────────────────────────────
 echo -e "${BOLD}Logs e sistema:${RESET}"
 echo "   1) Tentativas de acesso SSH      (auth.log)"
-echo "   2) Acessos recebidos pelo Nginx  (access.log)"
-echo "   3) Erros do Nginx                (error.log)"
+echo "   2) Logs de acesso do Traefik     (docker logs, JSON)"
+echo "   3) Logs de erro do Traefik       (docker logs, filtrado)"
 echo "   4) Logs dos containers Docker    (docker-compose logs)"
 echo "   5) IPs banidos pelo Fail2Ban     (fail2ban status)"
 echo "   6) Recursos do sistema           (htop)"
@@ -42,8 +42,20 @@ read -rp "$(echo -e "${CYAN}Opção:${RESET} ")" choice
 
 case "$choice" in
     1) tail -f /var/log/auth.log ;;
-    2) tail -f /var/log/nginx/access.log ;;
-    3) tail -f /var/log/nginx/error.log ;;
+    2)
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'traefik'; then
+            docker compose -f /opt/platform/edge/compose.yml logs -f traefik
+        else
+            warn "Traefik não está rodando — rode a etapa 9 primeiro."
+        fi
+        ;;
+    3)
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'traefik'; then
+            docker compose -f /opt/platform/edge/compose.yml logs -f traefik | grep -iE 'error|erro' --line-buffered
+        else
+            warn "Traefik não está rodando — rode a etapa 9 primeiro."
+        fi
+        ;;
     4)
         prompt COMPOSE_PATH "Caminho do compose.yml" "/opt/apps/PROJETO/production/app/compose.yml"
         docker compose -f "$COMPOSE_PATH" logs -f
