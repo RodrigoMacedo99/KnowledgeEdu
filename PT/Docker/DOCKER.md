@@ -704,7 +704,7 @@ app-repo/
   └── Dockerfile
 
 infra-live/
-  ├── sql-challenge/
+  ├── meu-servico/
   │   ├── docker-compose.yml
   │   └── .env.example
   └── environments/
@@ -727,7 +727,7 @@ infra-live/
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /opt/infra-live/sql-challenge
+cd /opt/infra-live/meu-servico
 git fetch origin
 git reset --hard origin/main
 docker compose pull

@@ -464,27 +464,7 @@ sudo groupadd webapps
 - `groupadd` — cria um novo grupo de usuários
 - `webapps` — nome do grupo; todos os usuários de projetos pertencem a ele, permitindo que o admin gerencie os arquivos sem virar root
 
-### 6.2 Criar usuário para o SQL Challenge
-
-```bash
-sudo useradd \
-  --system \
-  --no-create-home \
-  --shell /usr/sbin/nologin \
-  --gid webapps \
-  --comment "SQL Challenge service user" \
-  sqlchallenge
-```
-
-- `useradd` — cria um novo usuário
-- `--system` — cria um usuário de sistema com UID baixo; não aparece na tela de login
-- `--no-create-home` — não cria pasta `/home/sqlchallenge`; usuários de serviço não precisam de home
-- `--shell /usr/sbin/nologin` — define um shell que rejeita qualquer tentativa de login interativo; mesmo que alguém descubra a senha, não consegue abrir um terminal
-- `--gid webapps` — define `webapps` como grupo primário do usuário
-- `--comment` — descrição do usuário, visível em `getent passwd`
-- `sqlchallenge` — nome do usuário
-
-### 6.3 Adicionar o admin ao grupo webapps
+### 6.2 Adicionar o admin ao grupo webapps
 
 ```bash
 sudo usermod -aG webapps admin
@@ -502,7 +482,9 @@ exit && ssh vps
 groups
 ```
 
-### 6.4 Modelo para qualquer novo projeto
+### 6.3 Usuário de serviço para cada novo projeto
+
+Cada serviço recebe seu **próprio** usuário isolado — isso é automático pela etapa 15 quando você adiciona um serviço, mas o comando por trás é este:
 
 ```bash
 sudo useradd \
@@ -513,6 +495,13 @@ sudo useradd \
   --comment "NOME_PROJETO service user" \
   NOME_PROJETO
 ```
+
+- `useradd` — cria um novo usuário
+- `--system` — cria um usuário de sistema com UID baixo; não aparece na tela de login
+- `--no-create-home` — não cria pasta `/home/NOME_PROJETO`; usuários de serviço não precisam de home
+- `--shell /usr/sbin/nologin` — define um shell que rejeita qualquer tentativa de login interativo; mesmo que alguém descubra a senha, não consegue abrir um terminal
+- `--gid webapps` — define `webapps` como grupo primário do usuário
+- `--comment` — descrição do usuário, visível em `getent passwd`
 
 ---
 
@@ -803,55 +792,17 @@ ssh -L 5432:localhost:5432 vps
   - `localhost:5432` — destino dentro da VPS (localhost da VPS = banco de dados)
   - Tudo que chega na porta 5432 do seu computador é encaminhado de forma criptografada para a porta 5432 da VPS
 
-### 11.4 Backup automático
+### 11.4 Backup — automático e por servidor, não por projeto
+
+Diferente do resto desta seção (que é sobre o banco em si), o backup **não se configura aqui, nem por projeto**. Um único mecanismo cobre **todos os bancos da VPS de uma vez** — a cada execução ele descobre sozinho todo container Postgres em execução (Docker ou k3s), faz o dump de cada um e empacota tudo junto num arquivo **cifrado** (com [`age`](https://github.com/FiloSottile/age)), sem precisar tocar em nada quando você cria um serviço novo depois.
+
+Isso é a etapa **22** (`22-backups.sh`): gera (ou reaproveita) o par de chaves `age`, agenda o cron diário, e cuida da retenção. Detalhes completos, o formato do arquivo cifrado e como restaurar estão em [`SEGURANCA.md`](./SEGURANCA.md#22-backups-automatizados-e-criptografados).
 
 ```bash
-sudo nano /opt/apps/sql-challenge/backup.sh
+sudo bash vps-scripts/scripts/22-backups.sh
 ```
 
-```bash
-#!/bin/bash
-# Define onde os backups serão armazenados
-BACKUP_DIR="/opt/apps/sql-challenge/backups"
-
-# Gera um nome com data e hora para o arquivo
-DATE=$(date +%Y%m%d_%H%M%S)
-
-# Cria o diretório se não existir
-mkdir -p $BACKUP_DIR
-
-# pg_dump: exporta o banco de dados para SQL
-# docker exec: executa o comando dentro do container do banco
-# | gzip: comprime a saída antes de salvar no disco
-docker exec sql-challenge-db pg_dump \
-  -U challenge_user -d db_gestao \
-  | gzip > $BACKUP_DIR/db_gestao_$DATE.sql.gz
-
-# Remove backups com mais de 7 dias para não lotar o disco
-# -mtime +7: arquivos modificados há mais de 7 dias
-# -delete: apaga os arquivos encontrados
-find $BACKUP_DIR -name "*.sql.gz" -mtime +7 -delete
-
-echo "Backup concluído: db_gestao_$DATE.sql.gz"
-```
-
-```bash
-# Torna o script executável
-sudo chmod +x /opt/apps/sql-challenge/backup.sh
-sudo chown sqlchallenge:webapps /opt/apps/sql-challenge/backup.sh
-
-# Abre o crontab do usuário sqlchallenge
-sudo crontab -u sqlchallenge -e
-```
-
-```
-# Executa o backup todo dia às 3h da manhã
-# Formato: minuto hora dia_do_mes mes dia_da_semana comando
-0 3 * * * /opt/apps/sql-challenge/backup.sh >> /opt/apps/sql-challenge/backup.log 2>&1
-```
-
-- `>> backup.log` — adiciona a saída do script ao arquivo de log (sem sobrescrever)
-- `2>&1` — redireciona também os erros para o mesmo arquivo de log
+> Se você editar manualmente um `backup.sh` por projeto (como versões antigas deste guia sugeriam), ele vai **duplicar** o trabalho da etapa 22, sem a cifragem — prefira sempre o mecanismo central.
 
 ---
 
