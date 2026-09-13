@@ -1,9 +1,9 @@
 #!/bin/bash
 # Seção 30 — Gestão de usuários da VPS
 #
-# Ponto único para administrar quem tem acesso ao servidor: usuários HUMANOS
-# (admin, operadores — etapa 28) e usuários de SERVIÇO (um por projeto, criados
-# sozinhos pela etapa 15/29). Cobre o que fica faltando depois que a conta já
+# Ponto único para administrar quem tem acesso ao servidor: USUÁRIOS (pessoas —
+# admin, operadores da etapa 28) e SERVIÇOS (uma conta por projeto, criada
+# sozinha pela etapa 15/29). Cobre o que fica faltando depois que a conta já
 # existe: listar, gerenciar chaves SSH, bloquear/desbloquear, alternar sudo e
 # remover com segurança (limpando cron e o AllowUsers do sshd_config).
 
@@ -36,10 +36,10 @@ remove_from_allowusers() {
     fi
 }
 
-# ── 1. Listar usuários humanos (admin/operadores) ──────────────────────────
-list_human_users() {
+# ── 1. Listar usuários (admin/operadores) ───────────────────────────────────
+list_users() {
     echo
-    echo -e "${BOLD}Usuários humanos (UID 1000-65533 — admin/operadores):${RESET}"
+    echo -e "${BOLD}Usuários (UID 1000-65533 — admin/operadores):${RESET}"
     printf "  %-15s %-6s %-6s %-10s %s\n" "USUÁRIO" "UID" "SUDO" "STATUS" "GRUPOS"
     local found=0
     while IFS=: read -r name _ uid _ _ _ _; do
@@ -56,14 +56,14 @@ list_human_users() {
         [[ -n "$expiry" && "$expiry" != "never" ]] && status="EXPIRADO"
         printf "  %-15s %-6s %-6s %-10s %s\n" "$name" "$uid" "$sudo_flag" "$status" "$grp"
     done < /etc/passwd
-    [[ "$found" -eq 0 ]] && echo "  (nenhum usuário humano além do root encontrado)"
+    [[ "$found" -eq 0 ]] && echo "  (nenhum usuário além do root encontrado)"
 }
 
-# ── 2. Listar usuários de serviço (um por projeto) ─────────────────────────
-list_service_users() {
+# ── 2. Listar serviços (uma conta por projeto) ──────────────────────────────
+list_services() {
     echo
-    echo -e "${BOLD}Usuários de serviço (um por projeto — etapa 15/29):${RESET}"
-    printf "  %-20s %-15s %s\n" "PROJETO" "USUÁRIO" "PASTA"
+    echo -e "${BOLD}Serviços (uma conta por projeto — etapa 15/29):${RESET}"
+    printf "  %-20s %-15s %s\n" "PROJETO" "CONTA" "PASTA"
     local found=0
     for dir in /opt/apps/*/; do
         [[ -d "$dir" ]] || continue
@@ -84,7 +84,7 @@ manage_ssh_keys() {
     local home
     home="$(getent passwd "$SSH_USER" | cut -d: -f6)"
     if [[ -z "$home" || "$home" == "/" ]]; then
-        warn "'${SSH_USER}' não tem pasta home (parece ser usuário de serviço, sem login) — não gerencio chaves aqui."
+        warn "'${SSH_USER}' não tem pasta home (parece ser a conta de um serviço, sem login) — não gerencio chaves aqui."
         return
     fi
     local akfile="${home}/.ssh/authorized_keys"
@@ -169,7 +169,7 @@ remove_operator() {
     local uid
     uid="$(id -u "$DEL_USER")"
     if [[ "$uid" -lt 1000 ]]; then
-        warn "'${DEL_USER}' parece ser um usuário de SERVIÇO (uid ${uid}), dono de arquivos em /opt/apps."
+        warn "'${DEL_USER}' parece ser a conta de um SERVIÇO (uid ${uid}), dona de arquivos em /opt/apps."
         warn "Removê-lo NÃO apaga o projeto — só o dono dos arquivos passa a ser um UID órfão."
         confirm "Ainda assim remover '${DEL_USER}'?" || return
     fi
@@ -192,8 +192,8 @@ title "30. Gestão de usuários"
 
 show_user_menu() {
     echo
-    echo -e "  ${YELLOW}1${RESET}) Listar usuários humanos (admin/operadores)"
-    echo -e "  ${YELLOW}2${RESET}) Listar usuários de serviço (por projeto)"
+    echo -e "  ${YELLOW}1${RESET}) Listar usuários (admin/operadores)"
+    echo -e "  ${YELLOW}2${RESET}) Listar serviços (por projeto)"
     echo -e "  ${YELLOW}3${RESET}) Adicionar um novo operador (etapa 28)"
     echo -e "  ${YELLOW}4${RESET}) Gerenciar chaves SSH de um usuário"
     echo -e "  ${YELLOW}5${RESET}) Bloquear acesso de um usuário"
@@ -208,8 +208,8 @@ while true; do
     show_user_menu
     read -rp "$(echo -e "${YELLOW}Escolha uma opção:${RESET} ")" choice
     case "$choice" in
-        1) list_human_users ;;
-        2) list_service_users ;;
+        1) list_users ;;
+        2) list_services ;;
         3) bash "${SCRIPT_DIR}/28-operator-user.sh" ;;
         4) manage_ssh_keys ;;
         5) lock_user ;;

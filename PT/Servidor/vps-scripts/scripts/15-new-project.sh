@@ -3,7 +3,7 @@
 #
 # Um serviço = um monorepo com VÁRIOS containers (ex.: web + api + worker + db),
 # descritos por um único compose.yml no próprio repositório. Esta etapa:
-#   • cria o usuário de serviço e a pasta isolada do projeto;
+#   • cria a conta do serviço e a pasta isolada do projeto;
 #   • clona o monorepo em produção (e, opcionalmente, staging);
 #   • GERA um compose.override.yml no servidor com as labels do Traefik (domínio
 #     + HTTPS) para cada container público — o repositório continua portátil,
@@ -44,11 +44,11 @@ fi
 
 PROJECT_DIR="/opt/apps/${PROJECT_NAME}"
 
-# ── 1. Usuário de serviço ──────────────────────────────────────────────────
+# ── 1. Conta do serviço ──────────────────────────────────────────────────
 if id "$PROJECT_NAME" &>/dev/null; then
-    already_done "Usuário $PROJECT_NAME"
+    already_done "Serviço $PROJECT_NAME"
 else
-    info "Criando usuário de serviço $PROJECT_NAME..."
+    info "Criando o serviço $PROJECT_NAME..."
     useradd --system --no-create-home --shell /usr/sbin/nologin \
         --gid webapps --comment "${PROJECT_NAME} service user" "$PROJECT_NAME"
 fi

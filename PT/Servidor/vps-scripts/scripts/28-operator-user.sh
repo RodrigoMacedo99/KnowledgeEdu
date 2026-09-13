@@ -1,7 +1,7 @@
 #!/bin/bash
 # Seção 28 — Criar um usuário operador (além do admin)
 #
-# Cria uma conta humana adicional que pode RODAR ESTE SCRIPT (via sudo) para
+# Cria um usuário adicional que pode RODAR ESTE SCRIPT (via sudo) para
 # configurar novos serviços, ver logs, etc. Ele entra nos grupos certos (sudo,
 # webapps e docker/k3s conforme existam), recebe a chave SSH e é liberado no SSH
 # (AllowUsers) — sem isso o hardening da etapa 3 o bloquearia.
@@ -17,7 +17,7 @@ title "28. Usuário operador (além do admin)"
 prompt OP_USER "Nome do novo usuário (sem espaços, minúsculas)" ""
 [[ "$OP_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Nome inválido: use minúsculas, dígitos, '-' ou '_'."
 
-# ── 1. Criar o usuário (com home e shell, é uma conta humana) ──────────────
+# ── 1. Criar o usuário (com home e shell — diferente da conta de um serviço) ─
 if id "$OP_USER" &>/dev/null; then
     already_done "Usuário $OP_USER"
 else
