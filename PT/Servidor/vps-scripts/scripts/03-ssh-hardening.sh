@@ -30,11 +30,22 @@ apply_setting() {
 
 info "Aplicando configurações de segurança no sshd_config..."
 
+# Se a etapa 20 já ligou o 2FA no SSH antes, o sshd_config tem
+# 'AuthenticationMethods ...,keyboard-interactive' — forçar
+# KbdInteractiveAuthentication de volta para "no" (nosso padrão de base)
+# deixaria essa diretiva exigindo um método que acabamos de desligar, e o
+# 'sshd -t' recusa a configuração inteira. Preserva o 2FA já configurado.
+KBD_INTERACTIVE_DEFAULT="no"
+if grep -qE "^AuthenticationMethods .*keyboard-interactive" "$SSHD_CONFIG" 2>/dev/null; then
+    KBD_INTERACTIVE_DEFAULT="yes"
+    info "2FA no SSH (etapa 20) já estava ativo — mantendo KbdInteractiveAuthentication yes."
+fi
+
 apply_setting "Port"                          "$SSH_PORT"
 apply_setting "PermitRootLogin"               "no"
 apply_setting "PasswordAuthentication"        "no"
 apply_setting "PermitEmptyPasswords"          "no"
-apply_setting "KbdInteractiveAuthentication"  "no"
+apply_setting "KbdInteractiveAuthentication"  "$KBD_INTERACTIVE_DEFAULT"
 apply_setting "UsePAM"                        "yes"
 apply_setting "PubkeyAuthentication"          "yes"
 apply_setting "AuthorizedKeysFile"            ".ssh/authorized_keys"
