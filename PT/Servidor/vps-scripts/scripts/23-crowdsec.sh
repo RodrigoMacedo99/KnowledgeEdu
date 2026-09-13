@@ -49,13 +49,15 @@ if confirm "Também monitorar os logs do Traefik (detecta ataques HTTP)?"; then
     mkdir -p /etc/crowdsec/acquis.d
     cat > /etc/crowdsec/acquis.d/traefik.yaml <<EOF
 source: docker
-container_name_re:
+container_name_regexp:
   - "${TRAEFIK_CONTAINER}"
 labels:
   type: traefik
 EOF
     cscli collections install crowdsecurity/traefik >/dev/null 2>&1 || warn "Não instalei a coleção traefik — verifique com 'cscli collections list'."
     log "Aquisição do Traefik configurada."
+    warn "Se o restart do crowdsec falhar logo abaixo, confira o arquivo gerado:"
+    warn "  sudo crowdsec -t   # valida a configuração sem reiniciar o serviço"
 fi
 
 # ── 5. Reiniciar e habilitar ───────────────────────────────────────────────
