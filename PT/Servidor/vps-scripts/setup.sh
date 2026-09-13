@@ -81,6 +81,7 @@ declare -A STEP_NAMES=(
     [27]="k3s: 2FA/SSO (Authelia)"
     [28]="Criar usuário operador (além do admin)"
     [29]="k3s: adicionar serviço (monorepo)"
+    [30]="Gestão de usuários"
 )
 
 declare -A STEP_SCRIPTS=(
@@ -113,6 +114,7 @@ declare -A STEP_SCRIPTS=(
     [27]="scripts/27-k3s-2fa.sh"
     [28]="scripts/28-operator-user.sh"
     [29]="scripts/29-k3s-new-project.sh"
+    [30]="scripts/30-user-manager.sh"
 )
 
 # O setup guiado pergunta o RUNTIME e monta a sequência a partir daí.
@@ -195,7 +197,7 @@ show_menu_plain() {
     done
 
     local -a right=() right_plain=()
-    for i in $(seq 15 29); do
+    for i in $(seq 15 30); do
         plain="$(printf '%2d) %s' "$i" "${STEP_NAMES[$i]}")"
         right_plain+=("$plain")
         right+=("$(printf '%s%2d)%s %s' "$YELLOW" "$i" "$RESET" "${STEP_NAMES[$i]}")")
@@ -241,7 +243,7 @@ show_menu_plain() {
 build_menu_lines() {
     printf '%s\n' " a)  Executar setup completo (escolhe o runtime e monta tudo)"
     local i
-    for i in $(seq 1 29); do
+    for i in $(seq 1 30); do
         printf '%2d)  %s\n' "$i" "${STEP_NAMES[$i]}"
     done
     printf '%s\n' " 0)  Sair"
@@ -449,7 +451,7 @@ while true; do
 
     case "$choice" in
         a|A) run_full_setup ;;
-        [1-9]|1[0-9]|2[0-9]) run_step "$choice" ;;
+        [1-9]|1[0-9]|2[0-9]|30) run_step "$choice" ;;
         0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
         *)
             # Mostra o valor recebido (entre colchetes) — se algo estiver
@@ -459,7 +461,7 @@ while true; do
             read -rp "$(echo -e "${YELLOW}Digite a opção manualmente (número, 'a' ou '0') ou Enter para voltar ao menu: ${RESET}")" manual
             case "${manual:-}" in
                 a|A) run_full_setup ;;
-                [1-9]|1[0-9]|2[0-9]) run_step "$manual" ;;
+                [1-9]|1[0-9]|2[0-9]|30) run_step "$manual" ;;
                 0) echo -e "\n${GREEN}Saindo.${RESET}"; exit 0 ;;
                 "") : ;;   # Enter em branco — só volta ao menu
                 *) warn "Ainda inválido — voltando ao menu." ; sleep 1 ;;
