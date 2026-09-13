@@ -19,19 +19,9 @@ else
     groupadd webapps
 fi
 
-# ── Usuário sqlchallenge (projeto exemplo) ─────────────────────────────────
-if id sqlchallenge &>/dev/null; then
-    already_done "Usuário sqlchallenge"
-else
-    info "Criando usuário de serviço sqlchallenge..."
-    useradd \
-        --system \
-        --no-create-home \
-        --shell /usr/sbin/nologin \
-        --gid webapps \
-        --comment "SQL Challenge service user" \
-        sqlchallenge
-fi
+# Cada serviço recebe seu PRÓPRIO usuário de sistema, criado sob demanda pela
+# etapa 15 (novo serviço) — não há usuário de exemplo fixo aqui. O grupo
+# webapps acima é o que todos eles compartilham.
 
 # ── Admin nos grupos webapps e docker ─────────────────────────────────────
 info "Adicionando '$ADMIN_USER' aos grupos webapps e docker..."

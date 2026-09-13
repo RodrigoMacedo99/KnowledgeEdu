@@ -1,5 +1,10 @@
 #!/bin/bash
-# Seção 11 — Segurança do banco de dados PostgreSQL
+# Seção 11 — Segurança do PostgreSQL
+#
+# Checagens e ajuda genéricas para QUALQUER serviço que use Postgres — não
+# assume um projeto específico. O backup em si NÃO é feito aqui: é a etapa 22
+# (server-wide, criptografado, cobre todos os bancos automaticamente) — ver
+# o aviso no fim deste script.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -9,71 +14,52 @@ init_log "11-postgres"
 
 title "11. Segurança do PostgreSQL"
 
-# ── Verificar docker-compose.yml ──────────────────────────────────────────
-COMPOSE_FILE="/opt/apps/sql-challenge/backend/docker-compose.yml"
-
-if [[ -f "$COMPOSE_FILE" ]]; then
-    info "Verificando binding de porta no docker-compose.yml..."
-    if grep -qE '"5432:5432"' "$COMPOSE_FILE" && ! grep -qE '"127\.0\.0\.1:5432:5432"' "$COMPOSE_FILE"; then
-        warn "PROBLEMA DETECTADO: porta 5432 exposta sem binding ao localhost!"
-        warn "  Altere em $COMPOSE_FILE:"
-        warn "  DE:  - \"5432:5432\""
+# ── Verificar binding de porta em TODOS os serviços já criados ─────────────
+# Varre os compose de cada serviço (etapa 15) atrás do erro clássico: expor
+# 5432 para qualquer IP em vez de só localhost.
+echo
+info "Verificando binding de porta do Postgres nos serviços existentes..."
+FOUND_ANY="n"
+for compose_file in /opt/apps/*/*/app/compose.yml /opt/apps/*/*/compose.override.yml; do
+    [[ -f "$compose_file" ]] || continue
+    FOUND_ANY="y"
+    if grep -qE '"?5432:5432"?' "$compose_file" && ! grep -qE '127\.0\.0\.1:5432:5432' "$compose_file"; then
+        warn "PROBLEMA em ${compose_file}: porta 5432 pode estar exposta sem binding ao localhost."
+        warn "  DE:   - \"5432:5432\""
         warn "  PARA: - \"127.0.0.1:5432:5432\""
-    else
-        log "Binding de porta OK (127.0.0.1:5432:5432)."
     fi
+done
+if [[ "$FOUND_ANY" == "n" ]]; then
+    info "Nenhum serviço encontrado ainda em /opt/apps — rode a etapa 15 para criar um."
 else
-    warn "docker-compose.yml não encontrado em $COMPOSE_FILE"
-    info "Lembre-se: use sempre  127.0.0.1:5432:5432  e nunca  5432:5432  no ports."
+    log "Verificação concluída."
 fi
 
-# ── Gerar senha forte ──────────────────────────────────────────────────────
 echo
-info "Gerando senha segura para o banco de dados:"
+info "Regra geral para QUALQUER serviço com banco: nunca publique a porta do"
+info "banco para 0.0.0.0. Publique só em 127.0.0.1 (ou nem publique — acesse"
+info "via túnel SSH) e mantenha o banco fora da rede 'edge'."
+
+# ── Gerar senha forte (utilitário, para qualquer novo banco) ───────────────
+echo
+info "Gerando uma senha segura (use no .env de qualquer serviço com banco):"
 DB_PASSWORD=$(openssl rand -base64 32)
 echo -e "${GREEN}Senha gerada:${RESET} ${BOLD}${DB_PASSWORD}${RESET}"
 echo
-warn "Copie esta senha para o .env do projeto (variável POSTGRES_PASSWORD ou similar)."
-warn "Ela não será salva em nenhum arquivo por segurança."
+warn "Copie esta senha para o .env do serviço (ex.: POSTGRES_PASSWORD)."
+warn "Ela não é salva em nenhum arquivo por segurança — gere outra quando precisar."
 
-# ── Criar script de backup ────────────────────────────────────────────────
-PROJECT_DIR="/opt/apps/sql-challenge"
-BACKUP_SCRIPT="$PROJECT_DIR/backup.sh"
-
-if [[ -f "$BACKUP_SCRIPT" ]]; then
-    already_done "Script de backup"
-else
-    prompt CONTAINER_NAME "Nome do container do banco de dados" "sql-challenge-db"
-    prompt DB_USER        "Usuário do PostgreSQL"               "challenge_user"
-    prompt DB_NAME        "Nome do banco de dados"              "db_gestao"
-
-    info "Criando script de backup em $BACKUP_SCRIPT..."
-    cat > "$BACKUP_SCRIPT" <<EOF
-#!/bin/bash
-BACKUP_DIR="${PROJECT_DIR}/backups"
-DATE=\$(date +%Y%m%d_%H%M%S)
-mkdir -p "\$BACKUP_DIR"
-
-docker exec ${CONTAINER_NAME} pg_dump -U ${DB_USER} -d ${DB_NAME} \\
-    | gzip > "\$BACKUP_DIR/db_${DB_NAME}_\$DATE.sql.gz"
-
-find "\$BACKUP_DIR" -name "*.sql.gz" -mtime +7 -delete
-
-echo "Backup concluído: db_${DB_NAME}_\$DATE.sql.gz"
-EOF
-
-    chown sqlchallenge:webapps "$BACKUP_SCRIPT" 2>/dev/null || true
-    chmod +x "$BACKUP_SCRIPT"
-
-    info "Adicionando cron de backup diário às 3h..."
-    CRON_LINE="0 3 * * * ${BACKUP_SCRIPT} >> ${PROJECT_DIR}/backup.log 2>&1"
-    (crontab -u sqlchallenge -l 2>/dev/null | grep -qF "$BACKUP_SCRIPT") || \
-        (crontab -u sqlchallenge -l 2>/dev/null; echo "$CRON_LINE") | crontab -u sqlchallenge -
-    log "Cron de backup configurado."
-fi
-
+# ── Túnel SSH para administração remota ────────────────────────────────────
 echo
-info "Para acessar o banco remotamente via túnel SSH (sem abrir portas):"
-echo -e "  ${CYAN}ssh -L 5432:localhost:5432 vps${RESET}"
+info "Para acessar qualquer banco remotamente sem expor porta nenhuma:"
+echo -e "  ${CYAN}ssh -L 5432:localhost:PORTA_DO_BANCO vps${RESET}"
+echo -e "  (troque PORTA_DO_BANCO pela porta reservada — veja a etapa 18)"
+
+# ── Backup: aponta para o sistema genérico (etapa 22) ──────────────────────
+echo
+warn "Backup NÃO é configurado aqui. A etapa 22 já cobre TODOS os bancos do"
+warn "servidor automaticamente (Docker e k3s), criptografados e com retenção —"
+warn "não é preciso configurar nada por projeto. Se ainda não rodou, rode agora:"
+warn "  etapa 22 — Backups automatizados e criptografados"
 
 step_done "Segurança do PostgreSQL"
