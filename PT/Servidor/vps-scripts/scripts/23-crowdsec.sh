@@ -45,7 +45,8 @@ cscli collections install crowdsecurity/linux >/dev/null 2>&1 || true
 # ── 4. Aquisição do Traefik (opcional) ─────────────────────────────────────
 echo
 if confirm "Também monitorar os logs do Traefik (detecta ataques HTTP)?"; then
-    prompt TRAEFIK_CONTAINER "Padrão do nome do container do Traefik (regex)" "traefik"
+    prompt TRAEFIK_CONTAINER "Padrão do nome do container do Traefik (regex)" "$(get_config CROWDSEC_TRAEFIK_PATTERN traefik)"
+    save_config CROWDSEC_TRAEFIK_PATTERN "$TRAEFIK_CONTAINER"
     mkdir -p /etc/crowdsec/acquis.d
     cat > /etc/crowdsec/acquis.d/traefik.yaml <<EOF
 source: docker

@@ -396,15 +396,38 @@ run_full_setup() {
     esac
     plan+=(24)   # verificação final, sempre por último
 
+    # Pula o que já foi concluído com sucesso numa execução anterior — a 24
+    # (verificação) roda sempre, mesmo já "concluída" antes, pois seu papel é
+    # checar a saúde ATUAL, não algo que se faz uma vez só.
+    local -a todo=() skipped=()
+    for i in "${plan[@]}"; do
+        if [[ "$i" != "24" ]] && step_is_completed "$i"; then
+            skipped+=("$i")
+        else
+            todo+=("$i")
+        fi
+    done
+
     echo
-    warn "Runtime: ${BOLD}${label}${RESET}. Sequência de etapas: ${plan[*]}"
+    warn "Runtime: ${BOLD}${label}${RESET}. Sequência completa: ${plan[*]}"
+    if [[ ${#skipped[@]} -gt 0 ]]; then
+        info "Já concluídas antes (serão puladas): ${skipped[*]}"
+        if ask_confirm "Refazer TODAS as etapas mesmo assim, ignorando o que já foi feito?"; then
+            todo=("${plan[@]}")
+        fi
+    fi
+    if [[ ${#todo[@]} -eq 0 ]]; then
+        log "Nada a fazer — todas as etapas do plano (${label}) já foram concluídas antes."
+        warn "Use o menu numerado para reconfigurar uma etapa específica."
+        return
+    fi
     warn "As etapas 15 (novo serviço) e 17 (CI/CD) são sob demanda — rode-as depois."
     warn "Você será solicitado a fornecer informações em cada etapa."
     echo
-    ask_confirm "Iniciar setup completo (${label})?" || return
+    ask_confirm "Iniciar setup (${label}) — ${#todo[@]} etapa(s)?" || return
 
-    local total=${#plan[@]} n=0
-    for i in "${plan[@]}"; do
+    local total=${#todo[@]} n=0
+    for i in "${todo[@]}"; do
         n=$((n + 1))
         echo
         if (( HAS_GUM )); then

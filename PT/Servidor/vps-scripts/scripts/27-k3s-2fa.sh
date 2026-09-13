@@ -21,12 +21,16 @@ title "27. 2FA/SSO no k3s (Authelia)"
 command -v k3s &>/dev/null || die "k3s não instalado — rode a etapa 25 primeiro."
 $KC get clusterissuer letsencrypt &>/dev/null || warn "ClusterIssuer 'letsencrypt' ausente — o HTTPS do portal só sai com o cert-manager (etapa 25)."
 
-# ── 1. Dados ───────────────────────────────────────────────────────────────
-prompt AUTH_HOST     "Domínio do portal (ex: auth.seudominio.com)" ""
-prompt COOKIE_DOMAIN "Domínio base compartilhado (ex: seudominio.com)" ""
-prompt ADMIN_USER    "Usuário administrador do portal" "admin"
-prompt ADMIN_EMAIL   "E-mail do administrador" ""
+# ── 1. Dados (lembra o que já foi digitado antes, exceto segredos) ─────────
+prompt AUTH_HOST     "Domínio do portal (ex: auth.seudominio.com)" "$(get_config AUTHELIA_AUTH_HOST)"
+prompt COOKIE_DOMAIN "Domínio base compartilhado (ex: seudominio.com)" "$(get_config AUTHELIA_COOKIE_DOMAIN)"
+prompt ADMIN_USER    "Usuário administrador do portal" "$(get_config AUTHELIA_ADMIN_USER admin)"
+prompt ADMIN_EMAIL   "E-mail do administrador" "$(get_config AUTHELIA_ADMIN_EMAIL)"
 prompt_secret ADMIN_PASS "Senha do administrador do portal"
+save_config AUTHELIA_AUTH_HOST "$AUTH_HOST"
+save_config AUTHELIA_COOKIE_DOMAIN "$COOKIE_DOMAIN"
+save_config AUTHELIA_ADMIN_USER "$ADMIN_USER"
+save_config AUTHELIA_ADMIN_EMAIL "$ADMIN_EMAIL"
 
 # ── 2. Namespace ───────────────────────────────────────────────────────────
 $KC create namespace auth --dry-run=client -o yaml | $KC apply -f - >/dev/null

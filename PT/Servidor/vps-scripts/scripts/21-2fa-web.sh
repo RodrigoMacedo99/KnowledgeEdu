@@ -22,22 +22,32 @@ title "21. 2FA/SSO nos serviços web (Authelia)"
 docker network inspect edge &>/dev/null || die "Rede 'edge' não existe — rode as etapas 8 e 9 primeiro."
 require_command docker
 
-# ── 1. Dados ───────────────────────────────────────────────────────────────
-prompt AUTH_HOST     "Domínio do portal de login (ex: auth.seudominio.com)" ""
-prompt COOKIE_DOMAIN "Domínio base compartilhado pelos serviços (ex: seudominio.com)" ""
-prompt ADMIN_USER    "Usuário administrador do portal" "admin"
-prompt ADMIN_EMAIL   "E-mail do administrador" ""
+# ── 1. Dados (lembra o que já foi digitado antes, exceto segredos) ─────────
+prompt AUTH_HOST     "Domínio do portal de login (ex: auth.seudominio.com)" "$(get_config AUTHELIA_AUTH_HOST)"
+prompt COOKIE_DOMAIN "Domínio base compartilhado pelos serviços (ex: seudominio.com)" "$(get_config AUTHELIA_COOKIE_DOMAIN)"
+prompt ADMIN_USER    "Usuário administrador do portal" "$(get_config AUTHELIA_ADMIN_USER admin)"
+prompt ADMIN_EMAIL   "E-mail do administrador" "$(get_config AUTHELIA_ADMIN_EMAIL)"
 prompt_secret ADMIN_PASS "Senha do administrador do portal"
+save_config AUTHELIA_AUTH_HOST "$AUTH_HOST"
+save_config AUTHELIA_COOKIE_DOMAIN "$COOKIE_DOMAIN"
+save_config AUTHELIA_ADMIN_USER "$ADMIN_USER"
+save_config AUTHELIA_ADMIN_EMAIL "$ADMIN_EMAIL"
 
 echo
 info "Sem SMTP, o link de cadastro do 2FA e resets caem em notification.txt no servidor."
 USE_SMTP="n"
 if confirm "Configurar envio por e-mail (SMTP) para cadastro/reset do 2FA?"; then
     USE_SMTP="y"
-    prompt SMTP_HOST   "Servidor SMTP (ex: smtp.gmail.com)"        ""
-    prompt SMTP_PORT   "Porta SMTP (587 = STARTTLS, 465 = TLS)"    "587"
-    prompt SMTP_USER   "Usuário/login SMTP"                        "$ADMIN_EMAIL"
-    prompt SMTP_SENDER "Remetente (From)"                          "Authelia <no-reply@${COOKIE_DOMAIN}>"
+    prompt SMTP_HOST   "Servidor SMTP (ex: smtp.gmail.com)"        "$(get_config AUTHELIA_SMTP_HOST)"
+    prompt SMTP_PORT   "Porta SMTP (587 = STARTTLS, 465 = TLS)"    "$(get_config AUTHELIA_SMTP_PORT 587)"
+    prompt SMTP_USER   "Usuário/login SMTP"                        "$(get_config AUTHELIA_SMTP_USER "$ADMIN_EMAIL")"
+    prompt SMTP_SENDER "Remetente (From)"                          "$(get_config AUTHELIA_SMTP_SENDER "Authelia <no-reply@${COOKIE_DOMAIN}>")"
+    save_config AUTHELIA_SMTP_HOST "$SMTP_HOST"
+    save_config AUTHELIA_SMTP_PORT "$SMTP_PORT"
+    save_config AUTHELIA_SMTP_USER "$SMTP_USER"
+    save_config AUTHELIA_SMTP_SENDER "$SMTP_SENDER"
+    # A senha do SMTP NUNCA vai para o registro de configuração — só para o
+    # /opt/platform/.env (mais abaixo neste script), que já é o lugar seguro dela.
     prompt_secret SMTP_PASS "Senha (ou app-password) do SMTP"
 fi
 
