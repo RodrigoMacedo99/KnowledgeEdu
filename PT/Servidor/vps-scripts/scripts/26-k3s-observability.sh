@@ -24,7 +24,29 @@ k3s kubectl get clusterissuer letsencrypt &>/dev/null || warn "ClusterIssuer 'le
 # ── 1. Dados ───────────────────────────────────────────────────────────────
 prompt GRAFANA_HOST "Domínio do Grafana (ex: grafana.seudominio.com)" ""
 GRAFANA_PASS="$(openssl rand -base64 24)"
-prompt_optional ALERT_WEBHOOK "Webhook para alertas (Slack/Discord/Teams) — vazio p/ pular" ""
+
+echo
+echo -e "  ${YELLOW}1${RESET}) Webhook genérico (Slack/Discord/Teams/Google Chat)"
+echo -e "  ${YELLOW}2${RESET}) Telegram (bot + chat)"
+echo -e "  ${YELLOW}3${RESET}) Pular por agora"
+prompt ALERT_CHOICE "Destino dos alertas" "3"
+
+ALERT_WEBHOOK="" TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID=""
+case "$ALERT_CHOICE" in
+    1)
+        prompt ALERT_WEBHOOK "URL do webhook" "$(get_config ALERT_WEBHOOK_URL)"
+        save_config ALERT_WEBHOOK_URL "$ALERT_WEBHOOK"
+        ;;
+    2)
+        info "Crie um bot em https://t.me/BotFather (comando /newbot) e copie o token."
+        prompt_secret TELEGRAM_BOT_TOKEN "Token do bot do Telegram"
+        info "Chat ID: mande uma mensagem ao bot e acesse https://api.telegram.org/bot<TOKEN>/getUpdates"
+        info "(ou fale com @userinfobot no Telegram para pegar o seu chat_id pessoal)."
+        prompt TELEGRAM_CHAT_ID "Chat ID do Telegram (número — negativo se for grupo)" "$(get_config TELEGRAM_CHAT_ID)"
+        save_config TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
+        ;;
+    *) info "Alertas sem destino por enquanto." ;;
+esac
 
 # ── 2. Repositórios Helm ───────────────────────────────────────────────────
 info "Adicionando repositórios Helm..."
@@ -35,8 +57,9 @@ helm repo update >/dev/null 2>&1 || true
 # ── 3. Values (renderiza o domínio; anexa o webhook se houver) ─────────────
 VALUES="$(mktemp)"
 sed "s|__GRAFANA_HOST__|${GRAFANA_HOST}|g" "${TEMPLATES_DIR}/k3s/values/monitoring.yaml" > "$VALUES"
-if [[ -n "$ALERT_WEBHOOK" ]]; then
-    cat >> "$VALUES" <<EOF
+if [[ -n "$ALERT_WEBHOOK" || ( -n "$TELEGRAM_CHAT_ID" && -n "$TELEGRAM_BOT_TOKEN" ) ]]; then
+    {
+        cat <<EOF
 
 alertmanager:
   config:
@@ -48,10 +71,24 @@ alertmanager:
       repeat_interval: 4h
     receivers:
       - name: 'default'
+EOF
+        if [[ -n "$ALERT_WEBHOOK" ]]; then
+            cat <<EOF
         webhook_configs:
           - url: '${ALERT_WEBHOOK}'
             send_resolved: true
 EOF
+        else
+            cat <<EOF
+        telegram_configs:
+          - bot_token: '${TELEGRAM_BOT_TOKEN}'
+            chat_id: ${TELEGRAM_CHAT_ID}
+            api_url: 'https://api.telegram.org'
+            parse_mode: 'HTML'
+            send_resolved: true
+EOF
+        fi
+    } >> "$VALUES"
 fi
 
 # ── 4. kube-prometheus-stack ───────────────────────────────────────────────

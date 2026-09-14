@@ -26,8 +26,30 @@ prompt GRAFANA_HOST "Domínio do Grafana (ex: grafana.seudominio.com)" ""
 
 echo
 info "Alertas: o Prometheus já vem com regras de SLO; escolha para onde notificar."
-info "Um webhook cobre Slack/Discord/Teams/Google Chat (incoming webhook)."
-prompt_optional ALERT_WEBHOOK "URL de webhook para alertas (vazio p/ configurar depois)" ""
+echo -e "  ${YELLOW}1${RESET}) Webhook genérico (Slack/Discord/Teams/Google Chat)"
+echo -e "  ${YELLOW}2${RESET}) Telegram (bot + chat)"
+echo -e "  ${YELLOW}3${RESET}) Pular por agora (configura depois em alertmanager.yml)"
+prompt ALERT_CHOICE "Escolha" "3"
+
+ALERT_WEBHOOK="" TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID=""
+case "$ALERT_CHOICE" in
+    1)
+        prompt ALERT_WEBHOOK "URL do webhook" "$(get_config ALERT_WEBHOOK_URL)"
+        save_config ALERT_WEBHOOK_URL "$ALERT_WEBHOOK"
+        ;;
+    2)
+        info "Crie um bot em https://t.me/BotFather (comando /newbot) e copie o token."
+        prompt_secret TELEGRAM_BOT_TOKEN "Token do bot do Telegram"
+        info "Chat ID: mande uma mensagem ao bot e acesse"
+        info "  https://api.telegram.org/bot<TOKEN>/getUpdates"
+        info "(ou fale com @userinfobot no Telegram para pegar o seu chat_id pessoal)."
+        prompt TELEGRAM_CHAT_ID "Chat ID do Telegram (número — negativo se for grupo)" "$(get_config TELEGRAM_CHAT_ID)"
+        save_config TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
+        # O token do bot fica só dentro do alertmanager.yml (mesmo tratamento
+        # que a URL do webhook já recebia) — nunca no registro de config geral.
+        ;;
+    *) info "Alertas sem destino por enquanto." ;;
+esac
 
 # ── 2. Copiar os templates (preservando configs já editadas) ───────────────
 info "Instalando configuração da observabilidade em ${OBS_DIR}..."
@@ -35,9 +57,10 @@ cp -rn "${TEMPLATES_DIR}/observability/." "${OBS_DIR}/"
 # Vazio por padrão (login normal do Grafana); a etapa 21 preenche com o SSO.
 touch "${OBS_DIR}/grafana.env"
 
-# Destino dos alertas (webhook), se informado.
-if [[ -n "${ALERT_WEBHOOK}" ]]; then
-    cat > "${OBS_DIR}/alertmanager/alertmanager.yml" <<EOF
+# Destino dos alertas — webhook, Telegram, ou nenhum ainda.
+ALERTMANAGER_YML="${OBS_DIR}/alertmanager/alertmanager.yml"
+{
+    cat <<EOF
 route:
   receiver: 'default'
   group_by: ['alertname']
@@ -47,13 +70,32 @@ route:
 
 receivers:
   - name: 'default'
+EOF
+    if [[ -n "${ALERT_WEBHOOK}" ]]; then
+        cat <<EOF
     webhook_configs:
       - url: '${ALERT_WEBHOOK}'
         send_resolved: true
 EOF
+    elif [[ -n "${TELEGRAM_CHAT_ID}" && -n "${TELEGRAM_BOT_TOKEN}" ]]; then
+        cat <<EOF
+    telegram_configs:
+      - bot_token: '${TELEGRAM_BOT_TOKEN}'
+        chat_id: ${TELEGRAM_CHAT_ID}
+        api_url: 'https://api.telegram.org'
+        parse_mode: 'HTML'
+        send_resolved: true
+EOF
+    fi
+} > "$ALERTMANAGER_YML"
+chmod 640 "$ALERTMANAGER_YML"
+
+if [[ -n "${ALERT_WEBHOOK}" ]]; then
     log "Alertmanager configurado para enviar ao webhook."
+elif [[ -n "${TELEGRAM_CHAT_ID}" && -n "${TELEGRAM_BOT_TOKEN}" ]]; then
+    log "Alertmanager configurado para enviar ao Telegram (chat ${TELEGRAM_CHAT_ID})."
 else
-    info "Alertas ativos, mas sem destino — defina depois em ${OBS_DIR}/alertmanager/alertmanager.yml."
+    info "Alertas ativos, mas sem destino — defina depois em ${ALERTMANAGER_YML}."
 fi
 
 # ── 3. Segredos no .env da plataforma ──────────────────────────────────────
