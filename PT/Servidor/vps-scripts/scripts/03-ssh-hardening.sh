@@ -224,11 +224,19 @@ fi
 info "Validando configuração..."
 sshd -t || die "Configuração inválida — restaure o backup em $BACKUP"
 
-# Garante que a porta nova está liberada no UFW ANTES de reiniciar o sshd.
-# Se o sshd reiniciar antes desta regra existir e o UFW já estiver ativo,
-# a porta 22 some e a nova ainda não existe — lockout garantido.
-info "Abrindo porta ${SSH_PORT} no UFW antes de reiniciar o SSH..."
-ufw allow "${SSH_PORT}/tcp" comment 'SSH' 2>/dev/null || true
+# Se o UFW já estiver ATIVO, a porta nova precisa ter regra ANTES do restart do
+# sshd — senão o SSH fica inacessível. Não abrimos a porta para o mundo aqui (a
+# regra restrita à equipe é da etapa 5). Com o UFW inativo, a etapa 5 cria a regra
+# antes de ativá-lo. Nenhum erro do ufw é ignorado.
+if ufw status 2>/dev/null | grep -q "Status: active"; then
+    if ufw status 2>/dev/null | grep -qE "^${SSH_PORT}/tcp +ALLOW"; then
+        already_done "Regra UFW para ${SSH_PORT}/tcp"
+    else
+        die "UFW ativo sem regra para ${SSH_PORT}/tcp. Libere com 'sudo ufw allow from <IP_DA_EQUIPE> to any port ${SSH_PORT} proto tcp' e rode de novo. O SSH NÃO foi reiniciado."
+    fi
+else
+    info "UFW inativo: a regra para ${SSH_PORT}/tcp é criada na etapa 5, antes de ativá-lo."
+fi
 
 info "Reiniciando SSH..."
 # Ubuntu 24.04 usa socket activation: ssh.socket controla a porta,
