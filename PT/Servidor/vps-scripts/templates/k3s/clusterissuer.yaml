@@ -1,6 +1,8 @@
-# ClusterIssuer do cert-manager — a "autoridade" que emite os certificados
-# HTTPS (Let's Encrypt) para os Ingress do cluster inteiro.
-# A etapa 25 substitui __EMAIL__ e aplica este arquivo.
+# NÃO USAR — arquivo mantido só como registro. O cert-manager foi removido do
+# toolkit: o HTTPS é emitido pelo próprio Traefik do k3s (ACME), ver traefik-acme.yaml
+# e a etapa 25. Nenhum script aplica este arquivo.
+#
+# (Conteúdo original: ClusterIssuer do cert-manager para Let's Encrypt.)
 
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer

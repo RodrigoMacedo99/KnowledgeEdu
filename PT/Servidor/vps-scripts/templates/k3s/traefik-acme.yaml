@@ -1,0 +1,22 @@
+# Configura o Traefik do k3s com o resolvedor ACME 'letsencrypt' (HTTP-01 na porta 80).
+# Substitua __ACME_EMAIL__ (feito pela etapa 25). Substitui o cert-manager: os
+# IngressRoute declaram 'tls.certResolver: letsencrypt' e o próprio Traefik emite
+# e renova os certificados.
+#
+# Os certificados ficam em /data/acme.json, dentro de um volume persistente: sem
+# persistência o Traefik pediria certificados de novo a cada reinício e poderia
+# estourar os limites do Let's Encrypt.
+
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    additionalArguments:
+      - "--certificatesresolvers.letsencrypt.acme.email=__ACME_EMAIL__"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    persistence:
+      enabled: true
