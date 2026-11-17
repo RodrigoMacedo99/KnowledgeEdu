@@ -1,0 +1,58 @@
+# RBAC de LEITURA para um operador humano — gerado pela etapa 28.
+# Substitua __SA__ (ServiceAccount do operador, ex.: operador-rodrigo) e __NS__
+# (namespace da plataforma: operacao).
+#
+# Permite ver o estado do cluster e os logs. NÃO permite ler Secrets, abrir shell em
+# pods (exec), criar, alterar nem apagar recursos. Mudanças passam pelos scripts
+# (sudo) e pelo CI, não pelo kubectl do operador.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: __SA__
+  namespace: __NS__
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: operador-leitura
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "configmaps", "events", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes", "middlewares"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: __SA__-leitura
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: operador-leitura
+subjects:
+  - kind: ServiceAccount
+    name: __SA__
+    namespace: __NS__
+---
+# Token de longa duração do ServiceAccount (o k3s o preenche). Revogar o acesso =
+# apagar este Secret. O valor nunca é impresso: vai direto para o kubeconfig do operador.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: __SA__-token
+  namespace: __NS__
+  annotations:
+    kubernetes.io/service-account.name: __SA__
+type: kubernetes.io/service-account-token

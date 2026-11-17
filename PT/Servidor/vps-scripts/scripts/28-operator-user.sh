@@ -8,6 +8,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/k3s.sh"
+TEMPLATES_DIR="$(cd "$SCRIPT_DIR/../templates" && pwd)"
 
 require_root
 init_log "28-operator-user"
@@ -70,13 +72,78 @@ else
     error "sshd -t falhou — NÃO recarreguei o SSH. Revise ${SSHD}."
 fi
 
-# ── 6. Acesso ao k3s (se instalado) — kubectl sem sudo ─────────────────────
-if [[ -f /etc/rancher/k3s/k3s.yaml ]]; then
-    install -d -m 700 -o "$OP_USER" -g "$OP_USER" "/home/${OP_USER}/.kube"
-    cp /etc/rancher/k3s/k3s.yaml "/home/${OP_USER}/.kube/config"
-    chown "${OP_USER}:${OP_USER}" "/home/${OP_USER}/.kube/config"
-    chmod 600 "/home/${OP_USER}/.kube/config"
-    log "kubeconfig do k3s copiado para o $OP_USER (kubectl sem sudo)."
+# ── 6. Acesso ao k3s — kubeconfig de LEITURA (nunca o admin do cluster) ─────
+# O k3s.yaml é a credencial de administrador do cluster: copiá-lo daria acesso
+# total ao operador. Aqui ele recebe um ServiceAccount só com leitura (ver
+# templates/k3s/operador-rbac.yaml): sem Secrets, sem exec, sem escrita.
+ADMIN_KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
+OP_KUBE_DIR="/home/${OP_USER}/.kube"
+OP_KUBECONFIG="${OP_KUBE_DIR}/config"
+
+# Remove a cópia do admin deixada por versões anteriores deste script.
+if [[ -f "$OP_KUBECONFIG" ]] && grep -q 'client-certificate-data' "$OP_KUBECONFIG"; then
+    shred -u "$OP_KUBECONFIG" 2>/dev/null || rm -f "$OP_KUBECONFIG"
+    warn "kubeconfig com credencial de administrador (versão antiga) removido."
+fi
+
+# wait_for_token <secret> — o k3s preenche o token do Secret de forma assíncrona.
+# Guarda o resultado em TOKEN_B64 (sem subshell, para o die do chamador funcionar).
+wait_for_token() {
+    local secret="$1" _
+    TOKEN_B64=""
+    for _ in $(seq 1 30); do
+        TOKEN_B64="$(k3s kubectl get secret "$secret" -n "$PLATFORM_NAMESPACE" -o jsonpath='{.data.token}' 2>/dev/null)" || TOKEN_B64=""
+        [[ -n "$TOKEN_B64" ]] && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# write_operator_kubeconfig <serviço> <servidor> <CA> <token> — o token vai direto
+# para o arquivo (umask 077), nunca para a tela nem para a linha de comando.
+write_operator_kubeconfig() {
+    local sa="$1" server="$2" ca="$3" token="$4"
+    install -d -m 700 -o "$OP_USER" -g "$OP_USER" "$OP_KUBE_DIR"
+    (
+        umask 077
+        cat > "$OP_KUBECONFIG" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+  - name: k3s
+    cluster:
+      server: ${server}
+      certificate-authority-data: ${ca}
+users:
+  - name: ${sa}
+    user:
+      token: ${token}
+contexts:
+  - name: ${sa}@k3s
+    context:
+      cluster: k3s
+      user: ${sa}
+      namespace: ${PLATFORM_NAMESPACE}
+current-context: ${sa}@k3s
+EOF
+    )
+    chown "${OP_USER}:${OP_USER}" "$OP_KUBECONFIG"
+    chmod 600 "$OP_KUBECONFIG"
+}
+
+OP_SA="operador-${OP_USER//_/-}"
+if [[ -f "$ADMIN_KUBECONFIG" ]]; then
+    ensure_namespace "$PLATFORM_NAMESPACE"
+    sed -e "s|__SA__|${OP_SA}|g" -e "s|__NS__|${PLATFORM_NAMESPACE}|g" \
+        "${TEMPLATES_DIR}/k3s/operador-rbac.yaml" | k3s kubectl apply -f - >/dev/null
+    wait_for_token "${OP_SA}-token" || die "O k3s não preencheu o token de '${OP_SA}' a tempo."
+    OP_TOKEN="$(printf '%s' "$TOKEN_B64" | base64 -d)"
+    OP_SERVER="$(k3s kubectl config view --raw -o jsonpath='{.clusters[0].cluster.server}')"
+    OP_CA="$(k3s kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+    write_operator_kubeconfig "$OP_SA" "$OP_SERVER" "$OP_CA" "$OP_TOKEN"
+    log "kubeconfig de LEITURA para $OP_USER criado (ServiceAccount ${OP_SA})."
+else
+    warn "k3s não instalado — kubeconfig do operador não criado (rode a etapa 25 e depois esta etapa de novo)."
 fi
 
 echo
