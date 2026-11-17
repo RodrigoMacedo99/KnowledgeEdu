@@ -1,17 +1,17 @@
-# Exemplo de serviço no k3s — Deployment + Service + Ingress.
-# É o equivalente Kubernetes ao compose.yml + labels do Traefik do modelo Docker.
-# Aplique com:  sudo kubectl apply -f app-example.yaml
+# Referência de um serviço no k3s — Deployment + Service + IngressRoute.
+# Equivalente ao compose.yml + labels do Traefik do modelo Docker. Para gerar os
+# manifests de um serviço real use a etapa 29 (ela não aplica nada: você revisa e
+# aplica com 'sudo k3s kubectl apply -k <dir>').
 #
-# Troque: nome do app, imagem, porta e o domínio no Ingress.
+# Troque: o namespace (um dos previstos), a imagem (tag FIXA, nunca 'latest') e o
+# domínio. A imagem de exemplo abaixo NÃO existe: é só a forma do manifest.
 
 ---
-# Deployment: descreve o container e QUANTAS cópias (réplicas) manter no ar.
-# O k3s reinicia sozinho qualquer réplica que morrer (self-healing).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: exemplo-api
-  namespace: apps
+  namespace: sdi            # troque pelo namespace do projeto
 spec:
   replicas: 1
   selector:
@@ -22,11 +22,22 @@ spec:
       labels:
         app: exemplo-api
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: api
-          image: nginxdemos/hello:plain-text   # troque pela sua imagem
+          image: ghcr.io/SEU_USUARIO/exemplo-api:1.0.0   # troque; tag fixa
           ports:
-            - containerPort: 80
+            - containerPort: 3000
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests:      # o mínimo garantido
               cpu: "50m"
@@ -36,48 +47,38 @@ spec:
               memory: "256Mi"
           securityContext:
             allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 101
+            capabilities: { drop: ["ALL"] }
 
 ---
-# Service: dá um nome e um IP interno estável ao conjunto de réplicas,
-# distribuindo o tráfego entre elas (balanceamento interno).
 apiVersion: v1
 kind: Service
 metadata:
   name: exemplo-api
-  namespace: apps
+  namespace: sdi
 spec:
   selector:
     app: exemplo-api
   ports:
     - port: 80
-      targetPort: 80
+      targetPort: 3000
 
 ---
-# Ingress: a regra pública — diz ao Traefik do k3s "quem pedir por este domínio
-# vai para este Service", com HTTPS automático via cert-manager (ver K3S.md).
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# IngressRoute do Traefik: a regra pública. HTTPS emitido pelo Traefik (ACME,
+# resolvedor 'letsencrypt', etapa 25). Para exigir 2FA, acrescente o middleware
+# 'authelia' do MESMO namespace (templates/k3s/authelia-middleware.yaml).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
 metadata:
   name: exemplo-api
-  namespace: apps
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
+  namespace: sdi
 spec:
-  ingressClassName: traefik
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`api.exemplo.com`)
+      services:
+        - name: exemplo-api
+          port: 80
   tls:
-    - hosts:
-        - api.exemplo.com
-      secretName: exemplo-api-tls
-  rules:
-    - host: api.exemplo.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: exemplo-api
-                port:
-                  number: 80
+    certResolver: letsencrypt
