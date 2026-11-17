@@ -63,13 +63,13 @@ EOF
 chmod 640 "${EDGE_DIR}/dynamic/dashboard-auth.yml"
 
 # ── 5. Registrar o domínio do dashboard no .env da plataforma ──────────────
-touch "$PLATFORM_ENV"
+[[ -f "$PLATFORM_ENV" ]] || install -m 600 /dev/null "$PLATFORM_ENV"
 if grep -q '^TRAEFIK_DASHBOARD_HOST=' "$PLATFORM_ENV"; then
     sed -i "s|^TRAEFIK_DASHBOARD_HOST=.*|TRAEFIK_DASHBOARD_HOST=${TRAEFIK_DASHBOARD_HOST}|" "$PLATFORM_ENV"
 else
     echo "TRAEFIK_DASHBOARD_HOST=${TRAEFIK_DASHBOARD_HOST}" >> "$PLATFORM_ENV"
 fi
-chmod 640 "$PLATFORM_ENV"
+chmod 600 "$PLATFORM_ENV"
 
 # ── 6. Subir o Traefik ─────────────────────────────────────────────────────
 info "Subindo o Traefik..."

@@ -51,19 +51,21 @@ else
     mkdir -p "$PLATFORM_DIR/edge" "$PLATFORM_DIR/observability"
 fi
 chown -R "root:${PLATFORM_GROUP}" "$PLATFORM_DIR"
+# 750, nunca 755: a árvore não fica legível para todos. Contêineres não-root
+# recebem acesso por ACL mínima, só no arquivo que precisam (grant_container_read).
 chmod 750 "$PLATFORM_DIR"
 
-# ── .env da plataforma (segredos de Traefik/Grafana) ───────────────────────
-PLATFORM_ENV="${PLATFORM_DIR}/.env"
-if [[ -f "$PLATFORM_ENV" ]]; then
-    already_done ".env da plataforma"
+# ── Pacote 'acl' (setfacl), usado pelas etapas que dão acesso a contêineres ─
+if command -v setfacl &>/dev/null; then
+    already_done "Pacote acl (setfacl)"
 else
-    info "Criando ${PLATFORM_ENV} (preenchido pelas etapas 9 e 19)..."
-    touch "$PLATFORM_ENV"
-    chown "root:${PLATFORM_GROUP}" "$PLATFORM_ENV"
-    # 640: só root escreve; o grupo lê (docker compose --env-file, quando houver).
-    chmod 640 "$PLATFORM_ENV"
+    info "Instalando o pacote acl (setfacl)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y acl >/dev/null || die "Falha ao instalar o pacote acl."
 fi
+
+# O .env da plataforma NÃO é criado aqui. Ele é do Docker (etapas 9, 19 e 21) e é
+# criado por elas, com modo 600, só quando há uma variável a gravar. Segredos do
+# k3s vão para Secrets do Kubernetes, nunca para arquivos no host.
 
 echo
 info "Estrutura criada:"
