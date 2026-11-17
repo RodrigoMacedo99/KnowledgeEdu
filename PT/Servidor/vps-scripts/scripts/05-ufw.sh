@@ -55,6 +55,14 @@ warn "O UFW será ativado agora. Certifique-se de que a porta SSH ${SSH_PORT} es
 if confirm "Ativar o firewall?"; then
     # Sem regra de SSH, ativar o UFW derruba o acesso remoto: checa antes.
     ssh_rule_present || die "Não há regra liberando a porta ${SSH_PORT}/tcp. UFW NÃO ativado (evita perder o SSH)."
+    # E sem chave pública de algum usuário, a equipe ficaria sem como entrar.
+    shopt -s nullglob
+    key_found="n"
+    for home_dir in /home/*/; do
+        has_authorized_key "$(basename "$home_dir")" && key_found="y"
+    done
+    shopt -u nullglob
+    [[ "$key_found" == "y" ]] || die "Nenhum usuário com chave pública SSH instalada. UFW NÃO ativado."
     ufw --force enable
     log "UFW ativo."
 else

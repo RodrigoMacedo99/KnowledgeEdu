@@ -175,3 +175,12 @@ grant_container_read() {
     done
     setfacl -m "u:${uid}:r" "$file" || die "setfacl falhou em ${file}."
 }
+
+# ── Acesso SSH por chave ───────────────────────────────────────────────────
+# has_authorized_key <usuário> — 0 se o usuário tem ao menos uma chave pública
+# SSH em ~/.ssh/authorized_keys. Usada antes de desligar senha ou ativar firewall:
+# sem chave, o próximo passo tiraria o acesso remoto.
+has_authorized_key() {
+    local user="$1" file="/home/${1}/.ssh/authorized_keys"
+    [[ -s "$file" ]] && grep -qE '^(ssh-(ed25519|rsa)|ecdsa-sha2-|sk-)' "$file"
+}

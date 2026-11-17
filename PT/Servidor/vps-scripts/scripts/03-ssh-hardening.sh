@@ -238,6 +238,11 @@ else
     info "UFW inativo: a regra para ${SSH_PORT}/tcp é criada na etapa 5, antes de ativá-lo."
 fi
 
+# Esta etapa desliga login por senha. Sem chave pública do usuário permitido, o
+# próximo login seria impossível: paramos antes de reiniciar o sshd.
+has_authorized_key "$ALLOW_USER" \
+    || die "Sem chave pública SSH em /home/${ALLOW_USER}/.ssh/authorized_keys. Login por senha foi desligado — instale a chave antes de rodar esta etapa de novo. O SSH NÃO foi reiniciado."
+
 info "Reiniciando SSH..."
 # Ubuntu 24.04 usa socket activation: ssh.socket controla a porta,
 # não o sshd_config. Sem sobrescrever o socket, o SSH fica na 22
