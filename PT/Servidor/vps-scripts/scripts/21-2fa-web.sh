@@ -3,8 +3,11 @@
 #
 # Sobe o Authelia em /opt/platform/auth. Ele vira um portal de login único: ao
 # adicionar o middleware 'authelia@docker' a qualquer serviço, o Traefik primeiro
-# manda o visitante autenticar (senha + 2FA) antes de deixar passar. Um único
-# lugar para proteger dashboard do Traefik, Grafana, staging e painéis internos.
+# manda o visitante autenticar (senha + 2FA) antes de deixar passar.
+#
+# Notificador (cadastro/reset do 2FA): SMTP ou arquivo. Com SMTP, as credenciais
+# são TESTADAS antes de qualquer configuração ser gravada — credencial recusada
+# faria o Authelia reiniciar em loop. O modo escolhido fica registrado.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -15,43 +18,94 @@ init_log "21-2fa-web"
 TEMPLATES_DIR="$(cd "$SCRIPT_DIR/../templates" && pwd)"
 AUTH_DIR="/opt/platform/auth"
 PLATFORM_ENV="/opt/platform/.env"
-AUTHELIA_IMAGE="authelia/authelia:4.38"
+AUTHELIA_IMAGE="authelia/authelia:4.38.19"
+SMTP_MAX_ATTEMPTS=3
 
 title "21. 2FA/SSO nos serviços web (Authelia)"
 
 docker network inspect edge &>/dev/null || die "Rede 'edge' não existe — rode as etapas 8 e 9 primeiro."
 require_command docker
 
+# smtp_auth_check <host> <porta> <usuário> <senha>
+# Testa AUTH LOGIN de verdade. A senha vai ao openssl por stdin (printf é builtin
+# e o base64 recebe por pipe): nunca aparece em linha de comando nem na tela.
+# 465 = TLS implícito; demais portas = STARTTLS. Retorna 0 só com 235.
+smtp_auth_check() {
+    local host="$1" port="$2" user="$3" pass="$4" user_b64 pass_b64 transcript
+    local tls_args=(-starttls smtp)
+    [[ "$port" == "465" ]] && tls_args=()
+    user_b64="$(printf '%s' "$user" | base64 -w0)"
+    pass_b64="$(printf '%s' "$pass" | base64 -w0)"
+    transcript="$(
+        { printf 'EHLO authelia-check\r\nAUTH LOGIN\r\n%s\r\n%s\r\nQUIT\r\n' "$user_b64" "$pass_b64"; } \
+            | timeout 40 openssl s_client -quiet -crlf "${tls_args[@]}" -connect "${host}:${port}" 2>/dev/null
+    )" || transcript=""
+    if grep -q '^235 ' <<< "$transcript"; then
+        return 0
+    fi
+    if grep -q '^535 ' <<< "$transcript"; then
+        SMTP_CHECK_REASON="credenciais recusadas pelo servidor (535)"
+    else
+        SMTP_CHECK_REASON="sem resposta de autenticação (verifique host, porta e TLS)"
+    fi
+    return 1
+}
+
 # ── 1. Dados (lembra o que já foi digitado antes, exceto segredos) ─────────
 prompt AUTH_HOST     "Domínio do portal de login (ex: auth.seudominio.com)" "$(get_config AUTHELIA_AUTH_HOST)"
 prompt COOKIE_DOMAIN "Domínio base compartilhado pelos serviços (ex: seudominio.com)" "$(get_config AUTHELIA_COOKIE_DOMAIN)"
 prompt ADMIN_USER    "Usuário administrador do portal" "$(get_config AUTHELIA_ADMIN_USER admin)"
 prompt ADMIN_EMAIL   "E-mail do administrador" "$(get_config AUTHELIA_ADMIN_EMAIL)"
-prompt_secret ADMIN_PASS "Senha do administrador do portal"
+prompt_secret ADMIN_PASS "Senha do administrador do portal (não será exibida)"
 save_config AUTHELIA_AUTH_HOST "$AUTH_HOST"
 save_config AUTHELIA_COOKIE_DOMAIN "$COOKIE_DOMAIN"
 save_config AUTHELIA_ADMIN_USER "$ADMIN_USER"
 save_config AUTHELIA_ADMIN_EMAIL "$ADMIN_EMAIL"
 
+# ── 2. Notificador: SMTP validado ou arquivo ───────────────────────────────
 echo
-info "Sem SMTP, o link de cadastro do 2FA e resets caem em notification.txt no servidor."
-USE_SMTP="n"
+info "Sem SMTP, o link de cadastro do 2FA e de reset cai em /config/notification.txt no servidor."
+NOTIFIER_MODE="file"
 if confirm "Configurar envio por e-mail (SMTP) para cadastro/reset do 2FA?"; then
-    USE_SMTP="y"
-    prompt SMTP_HOST   "Servidor SMTP (ex: smtp.gmail.com)"        "$(get_config AUTHELIA_SMTP_HOST)"
-    prompt SMTP_PORT   "Porta SMTP (587 = STARTTLS, 465 = TLS)"    "$(get_config AUTHELIA_SMTP_PORT 587)"
-    prompt SMTP_USER   "Usuário/login SMTP"                        "$(get_config AUTHELIA_SMTP_USER "$ADMIN_EMAIL")"
-    prompt SMTP_SENDER "Remetente (From)"                          "$(get_config AUTHELIA_SMTP_SENDER "Authelia <no-reply@${COOKIE_DOMAIN}>")"
-    save_config AUTHELIA_SMTP_HOST "$SMTP_HOST"
-    save_config AUTHELIA_SMTP_PORT "$SMTP_PORT"
-    save_config AUTHELIA_SMTP_USER "$SMTP_USER"
-    save_config AUTHELIA_SMTP_SENDER "$SMTP_SENDER"
-    # A senha do SMTP NUNCA vai para o registro de configuração — só para o
-    # /opt/platform/.env (mais abaixo neste script), que já é o lugar seguro dela.
-    prompt_secret SMTP_PASS "Senha (ou app-password) do SMTP"
+    prompt SMTP_HOST   "Servidor SMTP (ex: smtp.sendpulse.com)"    "$(get_config AUTHELIA_SMTP_HOST)"
+    prompt SMTP_PORT   "Porta SMTP (587 = STARTTLS, 465 = TLS)"     "$(get_config AUTHELIA_SMTP_PORT 587)"
+    prompt SMTP_USER   "Usuário/login SMTP"                         "$(get_config AUTHELIA_SMTP_USER "$ADMIN_EMAIL")"
+    prompt SMTP_SENDER "Remetente (From)"                           "$(get_config AUTHELIA_SMTP_SENDER "Authelia <no-reply@${COOKIE_DOMAIN}>")"
+    SMTP_OK="n"
+    for attempt in $(seq 1 "$SMTP_MAX_ATTEMPTS"); do
+        prompt_secret SMTP_PASS "Senha (ou app-password) do SMTP (tentativa ${attempt}/${SMTP_MAX_ATTEMPTS})"
+        info "Testando a autenticação em ${SMTP_HOST}:${SMTP_PORT}..."
+        if smtp_auth_check "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USER" "$SMTP_PASS"; then
+            SMTP_OK="y"
+            break
+        fi
+        warn "Autenticação SMTP falhou: ${SMTP_CHECK_REASON}."
+    done
+    if [[ "$SMTP_OK" == "y" ]]; then
+        NOTIFIER_MODE="smtp"
+        log "SMTP autenticado com sucesso."
+        save_config AUTHELIA_SMTP_HOST "$SMTP_HOST"
+        save_config AUTHELIA_SMTP_PORT "$SMTP_PORT"
+        save_config AUTHELIA_SMTP_USER "$SMTP_USER"
+        save_config AUTHELIA_SMTP_SENDER "$SMTP_SENDER"
+    else
+        confirm "Continuar SEM SMTP (cadastro do 2FA via arquivo)? Não: aborta sem gravar nada." \
+            || die "SMTP não validado — nada foi gravado. Corrija as credenciais e rode de novo."
+        warn "Seguindo em modo arquivo (notification.txt)."
+    fi
 fi
+save_config AUTHELIA_NOTIFIER_MODE "$NOTIFIER_MODE"
+log "Modo do notificador: ${NOTIFIER_MODE}."
 
-# ── 2. Instalar templates e renderizar o domínio ───────────────────────────
+# ── 3. Hash argon2 (senha por stdin, nunca por argv) ───────────────────────
+info "Gerando hash argon2 da senha (via imagem do Authelia)..."
+HASH_OUTPUT="$(printf '%s\n' "$ADMIN_PASS" \
+    | docker run --rm -i --entrypoint sh "$AUTHELIA_IMAGE" \
+        -c 'read -r pw && authelia crypto hash generate argon2 --password "$pw"' 2>/dev/null)" || HASH_OUTPUT=""
+HASH="$(awk '/Digest:/ {print $2}' <<< "$HASH_OUTPUT")"
+[[ -n "$HASH" ]] || die "Falha ao gerar o hash da senha."
+
+# ── 4. Instalar templates e renderizar ─────────────────────────────────────
 info "Instalando configuração do Authelia em ${AUTH_DIR}..."
 mkdir -p "$AUTH_DIR"
 sed -e "s|__DOMAIN__|${COOKIE_DOMAIN}|g" \
@@ -59,8 +113,7 @@ sed -e "s|__DOMAIN__|${COOKIE_DOMAIN}|g" \
     "${TEMPLATES_DIR}/auth/configuration.yml" > "${AUTH_DIR}/configuration.yml"
 cp "${TEMPLATES_DIR}/auth/compose.yml" "${AUTH_DIR}/compose.yml"
 
-# Notifier: SMTP (se informado) ou arquivo. Anexado ao fim da config.
-if [[ "$USE_SMTP" == "y" ]]; then
+if [[ "$NOTIFIER_MODE" == "smtp" ]]; then
     # 465 = TLS implícito (submissions://); demais portas = STARTTLS (smtp://).
     if [[ "$SMTP_PORT" == "465" ]]; then SMTP_SCHEME="submissions"; else SMTP_SCHEME="smtp"; fi
     cat >> "${AUTH_DIR}/configuration.yml" <<EOF
@@ -72,10 +125,6 @@ notifier:
     sender: '${SMTP_SENDER}'
     subject: '[Authelia] {title}'
 EOF
-    # Senha do SMTP como segredo no .env (recriada sem sed p/ aceitar qualquer caractere).
-    sed -i '/^AUTHELIA_NOTIFIER_SMTP_PASSWORD=/d' "$PLATFORM_ENV" 2>/dev/null || true
-    echo "AUTHELIA_NOTIFIER_SMTP_PASSWORD=${SMTP_PASS}" >> "$PLATFORM_ENV"
-    log "Notifier SMTP configurado (${SMTP_HOST}:${SMTP_PORT})."
 else
     cat >> "${AUTH_DIR}/configuration.yml" <<'EOF'
 
@@ -83,13 +132,7 @@ notifier:
   filesystem:
     filename: '/config/notification.txt'
 EOF
-    info "Notifier em arquivo (/config/notification.txt)."
 fi
-
-# ── 3. Hash argon2 da senha do admin (gerado pelo próprio Authelia) ────────
-info "Gerando hash argon2 da senha (via imagem do Authelia)..."
-HASH="$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 --password "$ADMIN_PASS" 2>/dev/null | awk '/Digest:/ {print $2}')"
-[[ -z "$HASH" ]] && die "Falha ao gerar o hash da senha."
 
 cat > "${AUTH_DIR}/users_database.yml" <<EOF
 users:
@@ -103,12 +146,16 @@ users:
 EOF
 chmod 640 "${AUTH_DIR}/users_database.yml"
 
-# ── 4. Segredos no .env da plataforma (idempotente) ────────────────────────
-touch "$PLATFORM_ENV"
+# ── 5. Segredos no .env da plataforma (600, só root) ───────────────────────
+[[ -f "$PLATFORM_ENV" ]] || install -m 600 /dev/null "$PLATFORM_ENV"
+if [[ "$NOTIFIER_MODE" == "smtp" ]]; then
+    sed -i '/^AUTHELIA_NOTIFIER_SMTP_PASSWORD=/d' "$PLATFORM_ENV"
+    printf 'AUTHELIA_NOTIFIER_SMTP_PASSWORD=%s\n' "$SMTP_PASS" >> "$PLATFORM_ENV"
+fi
 add_secret() {
     local key="$1"
     grep -q "^${key}=" "$PLATFORM_ENV" && return 0
-    echo "${key}=$(openssl rand -hex 64)" >> "$PLATFORM_ENV"
+    printf '%s=%s\n' "$key" "$(openssl rand -hex 64)" >> "$PLATFORM_ENV"
     log "Segredo ${key} gerado."
 }
 add_secret AUTHELIA_SESSION_SECRET
@@ -120,16 +167,15 @@ if grep -q '^AUTH_HOST=' "$PLATFORM_ENV"; then
 else
     echo "AUTH_HOST=${AUTH_HOST}" >> "$PLATFORM_ENV"
 fi
-chmod 640 "$PLATFORM_ENV"
+chmod 600 "$PLATFORM_ENV"
 
-# ── 5. Subir ───────────────────────────────────────────────────────────────
+# ── 6. Subir ───────────────────────────────────────────────────────────────
 info "Subindo o Authelia..."
 docker compose --env-file "$PLATFORM_ENV" -f "${AUTH_DIR}/compose.yml" up -d
 
-# ── 5b. Proteger dashboard do Traefik e Grafana com o Authelia ─────────────
+# ── 7. Proteger dashboard do Traefik e Grafana com o Authelia ──────────────
 # Feito só AGORA (não nos templates) porque o middleware 'authelia@docker' só
-# existe depois que o Authelia sobe — se estivesse fixo no edge, o router
-# quebraria antes da etapa 21. Idempotente.
+# existe depois que o Authelia sobe. Idempotente.
 protect_with_authelia() {
     local compose_file="$1" router="$2" new_mw="$3" stack="$4"
     if [[ ! -f "$compose_file" ]]; then
@@ -153,12 +199,8 @@ protect_with_authelia() {
 
 echo
 info "Protegendo o dashboard do Traefik e o Grafana com o Authelia (padrão)..."
-# Dashboard: troca o basic-auth pelo Authelia, mantendo a allowlist de IP.
 protect_with_authelia "/opt/platform/edge/compose.yml" "dashboard" \
     "admin-allowlist@file,authelia@docker" "Edge/Traefik"
-# Grafana: login único (SSO) de verdade — confia no cabeçalho Remote-User que o
-# Authelia injeta, evitando um segundo login. Só é seguro porque o Grafana só é
-# alcançável via Traefik+Authelia; a whitelist restringe a confiança à rede edge.
 GRAFANA_ENV="/opt/platform/observability/grafana.env"
 if [[ -f "/opt/platform/observability/compose.yml" ]]; then
     EDGE_SUBNET="$(docker network inspect edge -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null)"
@@ -175,31 +217,29 @@ GF_AUTH_PROXY_WHITELIST=${EDGE_SUBNET}
 EOF
     log "Grafana com login único via Authelia (auth proxy, whitelist ${EDGE_SUBNET:-edge})."
 fi
-# Adiciona o Authelia à frente do Grafana e reaplica (pega o grafana.env acima).
 protect_with_authelia "/opt/platform/observability/compose.yml" "grafana" \
     "secure-chain@file,authelia@docker" "Observabilidade"
 
-# ── 6. Resumo e como proteger um serviço ───────────────────────────────────
+# ── 8. Resumo ──────────────────────────────────────────────────────────────
 echo
 echo -e "${BOLD}${GREEN}══ Authelia no ar ══${RESET}"
 echo -e "  Portal: ${CYAN}https://${AUTH_HOST}${RESET}   Usuário: ${CYAN}${ADMIN_USER}${RESET}"
+echo -e "  Notificador: ${CYAN}${NOTIFIER_MODE}${RESET}"
 echo
 echo -e "${BOLD}Cadastrar o 2FA (primeiro acesso):${RESET}"
 echo -e "  1. Aponte o DNS de ${AUTH_HOST} para o IP da VPS."
 echo -e "  2. Acesse o portal, entre com usuário/senha e registre o app autenticador (TOTP)."
-if [[ "$USE_SMTP" == "y" ]]; then
+if [[ "$NOTIFIER_MODE" == "smtp" ]]; then
     echo -e "     (O link de registro chega no e-mail via SMTP configurado.)"
 else
-    echo -e "     (Sem SMTP: o link de registro cai em ${CYAN}${AUTH_DIR}/notification.txt${RESET} — leia-o lá.)"
+    echo -e "     (Sem SMTP: o link cai em ${CYAN}/config/notification.txt${RESET} dentro do contêiner.)"
+    echo -e "     Leia com: ${CYAN}docker exec authelia cat /config/notification.txt${RESET}"
 fi
-echo
-echo -e "${BOLD}Já protegidos por padrão:${RESET} dashboard do Traefik e Grafana."
 echo
 echo -e "${BOLD}Proteger OUTRO serviço com 2FA${RESET} — adicione ao router dele a label:"
 echo -e "  ${CYAN}traefik.http.routers.<router>.middlewares=secure-chain@file,authelia@docker${RESET}"
 echo -e "  e rode 'docker compose up -d' do stack correspondente."
 echo
-warn "Valide a config se algo não subir: docker compose -f ${AUTH_DIR}/compose.yml logs authelia"
-warn "Ou: docker run --rm -v ${AUTH_DIR}:/config ${AUTHELIA_IMAGE} authelia validate-config --config /config/configuration.yml"
+warn "Se algo não subir: docker compose -f ${AUTH_DIR}/compose.yml logs authelia"
 
-step_done "2FA web (Authelia, portal: ${AUTH_HOST})"
+step_done "2FA web (Authelia, portal: ${AUTH_HOST}, notificador: ${NOTIFIER_MODE})"

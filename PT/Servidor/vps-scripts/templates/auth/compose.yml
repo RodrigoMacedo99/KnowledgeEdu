@@ -15,7 +15,7 @@
 
 services:
   authelia:
-    image: authelia/authelia:4.38
+    image: authelia/authelia:4.38.19
     restart: unless-stopped
     environment:
       # Segredos injetados pelo .env (o Authelia lê AUTHELIA_* automaticamente).
