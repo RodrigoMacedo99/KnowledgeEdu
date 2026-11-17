@@ -7,6 +7,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/k3s.sh"
 
 require_root
 init_log "24-verify"
@@ -66,12 +67,15 @@ if command -v k3s &>/dev/null; then
     echo -e "\n${BOLD}k3s:${RESET}"
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     k3s kubectl get nodes 2>/dev/null | grep -q ' Ready ' && ok "Nó do cluster Ready" || no "Nó do cluster não está Ready"
-    k3s kubectl get clusterissuer letsencrypt &>/dev/null && ok "cert-manager (ClusterIssuer letsencrypt)" || wr "ClusterIssuer letsencrypt ausente (etapa 25)"
-    if k3s kubectl get ns observability &>/dev/null; then
-        pend="$(k3s kubectl get pods -n observability --no-headers 2>/dev/null | grep -cvE 'Running|Completed')"
-        [[ "${pend:-0}" -eq 0 ]] && ok "Observabilidade no k3s (pods Running)" || wr "Observabilidade no k3s: ${pend} pod(s) fora de Running"
+    k3s kubectl -n kube-system get helmchartconfig traefik &>/dev/null \
+        && ok "Traefik com ACME (resolver letsencrypt)" || wr "Traefik sem configuração ACME (etapa 25)"
+    if k3s kubectl get ns "$PLATFORM_NAMESPACE" &>/dev/null; then
+        pend="$(k3s kubectl get pods -n "$PLATFORM_NAMESPACE" --no-headers 2>/dev/null | grep -cvE 'Running|Completed')"
+        [[ "${pend:-0}" -eq 0 ]] && ok "Plataforma no namespace ${PLATFORM_NAMESPACE} (pods Running)" || wr "Namespace ${PLATFORM_NAMESPACE}: ${pend} pod(s) fora de Running"
+        k3s kubectl -n "$PLATFORM_NAMESPACE" get ingressroute grafana &>/dev/null \
+            && ok "Grafana publicado por IngressRoute" || wr "Grafana sem IngressRoute (etapa 26)"
     else
-        wr "Observabilidade no k3s não instalada (etapa 26)"
+        wr "Namespace ${PLATFORM_NAMESPACE} não existe (etapas 25 e 26)"
     fi
     k3s kubectl get deploy authelia -n auth &>/dev/null && ok "Authelia no k3s" || wr "Authelia no k3s não instalado (etapa 27)"
 fi
@@ -102,17 +106,20 @@ fi
 
 # ── Backups ────────────────────────────────────────────────────────────────
 echo -e "\n${BOLD}Backups:${RESET}"
-if crontab -l 2>/dev/null | grep -q '/opt/platform/backups/backup.sh'; then
-    ok "Cron de backup configurado"
-    latest="$(ls -t /opt/platform/backups/archives/*.age 2>/dev/null | head -1)"
-    if [[ -n "$latest" ]]; then
-        age_days=$(( ( $(date +%s) - $(stat -c %Y "$latest") ) / 86400 ))
-        [[ "$age_days" -le 1 ]] && ok "Último backup há ${age_days}d" || wr "Último backup há ${age_days}d (verifique)"
+if command -v k3s &>/dev/null && k3s kubectl -n "$PLATFORM_NAMESPACE" get cronjob backup &>/dev/null; then
+    ok "CronJob de backup configurado (${PLATFORM_NAMESPACE}/backup)"
+    last="$(k3s kubectl -n "$PLATFORM_NAMESPACE" get cronjob backup -o jsonpath='{.status.lastSuccessfulTime}' 2>/dev/null)"
+    if [[ -n "$last" ]]; then
+        age_days=$(( ( $(date +%s) - $(date -d "$last" +%s) ) / 86400 ))
+        [[ "$age_days" -le 1 ]] && ok "Último backup concluído há ${age_days}d" || wr "Último backup concluído há ${age_days}d (verifique)"
     else
-        wr "Nenhum arquivo de backup ainda (o cron roda no horário definido)"
+        wr "Nenhum backup concluído ainda (o CronJob roda no horário definido)"
     fi
 else
     wr "Backups não configurados (etapa 22)"
+fi
+if crontab -l 2>/dev/null | grep -q '/opt/platform/backups/backup.sh'; then
+    wr "Cron de host antigo ainda ativo — rode a etapa 22 para migrar ao CronJob"
 fi
 
 # ── DNS dos domínios roteados (Docker e/ou k3s) ─────────────────────────────
@@ -120,7 +127,7 @@ echo -e "\n${BOLD}DNS dos domínios:${RESET}"
 domains="$(
     {
         grep -rhoE 'Host\(`[^`]+`\)' /opt/apps/*/*/compose.override.yml 2>/dev/null | grep -oE '`[^`]+`' | tr -d '`'
-        command -v k3s &>/dev/null && k3s kubectl get ingress -A -o jsonpath='{range .items[*]}{range .spec.rules[*]}{.host}{"\n"}{end}{end}' 2>/dev/null
+        command -v k3s &>/dev/null && k3s kubectl get ingressroute -A -o jsonpath='{range .items[*]}{.spec.routes[*].match}{"\n"}{end}' 2>/dev/null | grep -oE 'Host\(`[^`]+`\)' | grep -oE '`[^`]+`' | tr -d '`'
     } | sort -u
 )"
 if [[ -z "$domains" ]]; then
