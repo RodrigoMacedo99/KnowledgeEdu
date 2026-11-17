@@ -40,14 +40,14 @@ info "Regra geral para QUALQUER serviço com banco: nunca publique a porta do"
 info "banco para 0.0.0.0. Publique só em 127.0.0.1 (ou nem publique — acesse"
 info "via túnel SSH) e mantenha o banco fora da rede 'edge'."
 
-# ── Gerar senha forte (utilitário, para qualquer novo banco) ───────────────
+# ── Senha de banco: gerada direto em arquivo, nunca impressa ───────────────
+# Esta etapa não gera nem mostra senha: uma senha na tela fica no histórico do
+# terminal e no log. Gere-a em arquivo restrito e entregue-a ao serviço.
 echo
-info "Gerando uma senha segura (use no .env de qualquer serviço com banco):"
-DB_PASSWORD=$(openssl rand -base64 32)
-echo -e "${GREEN}Senha gerada:${RESET} ${BOLD}${DB_PASSWORD}${RESET}"
-echo
-warn "Copie esta senha para o .env do serviço (ex.: POSTGRES_PASSWORD)."
-warn "Ela não é salva em nenhum arquivo por segurança — gere outra quando precisar."
+info "Para um novo banco, gere a senha em arquivo de 600 (não aparece na tela):"
+echo -e "  ${CYAN}(umask 077; openssl rand -base64 32 > /caminho/do/segredo_db)${RESET}"
+echo -e "  No k3s, carregue esse arquivo num Secret: ${CYAN}sudo k3s kubectl create secret generic <nome> -n <namespace> --from-file=POSTGRES_PASSWORD=/caminho/do/segredo_db${RESET}"
+echo -e "  No Docker, aponte o serviço para o arquivo (ex.: POSTGRES_PASSWORD_FILE)."
 
 # ── Túnel SSH para administração remota ────────────────────────────────────
 echo
