@@ -1,61 +1,94 @@
 #!/bin/bash
 # Seção 27 — 2FA/SSO no k3s (Authelia + forward-auth do Traefik)
 #
-# Sobe o Authelia no cluster e cria o Middleware do Traefik que os Ingress
-# referenciam para exigir login com 2FA — o equivalente Kubernetes da etapa 21.
-# Opcionalmente já protege o Grafana (etapa 26).
+# Sobe o Authelia no namespace 'auth', exposto por IngressRoute com HTTPS. Para
+# exigir 2FA num serviço, o IngressRoute dele referencia o Middleware 'authelia'
+# do PRÓPRIO namespace (templates/k3s/authelia-middleware.yaml). Opcionalmente
+# protege o Grafana (etapa 26), no namespace operacao.
+#
+# Segredos nunca passam por argumento de linha de comando nem pela tela: os
+# Secrets são criados a partir de arquivos temporários, e o hash da senha de
+# administrador é calculado com a senha entrando por stdin.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/k3s.sh"
 
 require_root
 init_log "27-k3s-2fa"
 
 TEMPLATES_DIR="$(cd "$SCRIPT_DIR/../templates" && pwd)"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-KC="k3s kubectl"
-AUTHELIA_IMAGE="authelia/authelia:4.38"
+AUTHELIA_IMAGE="authelia/authelia:4.38.19"
 
 title "27. 2FA/SSO no k3s (Authelia)"
 
 command -v k3s &>/dev/null || die "k3s não instalado — rode a etapa 25 primeiro."
-$KC get clusterissuer letsencrypt &>/dev/null || warn "ClusterIssuer 'letsencrypt' ausente — o HTTPS do portal só sai com o cert-manager (etapa 25)."
 
 # ── 1. Dados (lembra o que já foi digitado antes, exceto segredos) ─────────
 prompt AUTH_HOST     "Domínio do portal (ex: auth.seudominio.com)" "$(get_config AUTHELIA_AUTH_HOST)"
 prompt COOKIE_DOMAIN "Domínio base compartilhado (ex: seudominio.com)" "$(get_config AUTHELIA_COOKIE_DOMAIN)"
 prompt ADMIN_USER    "Usuário administrador do portal" "$(get_config AUTHELIA_ADMIN_USER admin)"
 prompt ADMIN_EMAIL   "E-mail do administrador" "$(get_config AUTHELIA_ADMIN_EMAIL)"
-prompt_secret ADMIN_PASS "Senha do administrador do portal"
+prompt_secret ADMIN_PASS "Senha do administrador do portal (não será exibida)"
 save_config AUTHELIA_AUTH_HOST "$AUTH_HOST"
 save_config AUTHELIA_COOKIE_DOMAIN "$COOKIE_DOMAIN"
 save_config AUTHELIA_ADMIN_USER "$ADMIN_USER"
 save_config AUTHELIA_ADMIN_EMAIL "$ADMIN_EMAIL"
 
 # ── 2. Namespace ───────────────────────────────────────────────────────────
-$KC create namespace auth --dry-run=client -o yaml | $KC apply -f - >/dev/null
+ensure_namespace auth
 
 # ── 3. Segredos (chaves aleatórias) ────────────────────────────────────────
-info "Gerando segredos do Authelia..."
-$KC create secret generic authelia-secrets -n auth \
-    --from-literal=AUTHELIA_SESSION_SECRET="$(openssl rand -hex 64)" \
-    --from-literal=AUTHELIA_STORAGE_ENCRYPTION_KEY="$(openssl rand -hex 64)" \
-    --from-literal=AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET="$(openssl rand -hex 64)" \
-    --dry-run=client -o yaml | $KC apply -f - >/dev/null
-
-# ── 4. Base de usuários (com hash argon2 da senha) ─────────────────────────
-info "Gerando hash argon2 da senha..."
-# Preferimos um pod efêmero do próprio cluster (sem depender do Docker); se o
-# Docker existir, usamos ele por ser mais rápido.
-if command -v docker &>/dev/null; then
-    HASH="$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 --password "$ADMIN_PASS" 2>/dev/null | awk '/Digest:/ {print $2}')"
+# Criados só na primeira vez. Regenerar a STORAGE_ENCRYPTION_KEY faria o Authelia
+# deixar de conseguir ler o próprio banco; regenerar a SESSION_SECRET derrubaria
+# todas as sessões. Reexecutar a etapa só troca a base de usuários.
+if k3s kubectl get secret authelia-secrets -n auth &>/dev/null; then
+    already_done "Chaves do Authelia (Secret authelia-secrets mantido)"
 else
-    HASH="$($KC run "authelia-hash-$$" --rm -i --restart=Never --image="$AUTHELIA_IMAGE" --command -- \
-        authelia crypto hash generate argon2 --password "$ADMIN_PASS" 2>/dev/null | awk '/Digest:/ {print $2}')"
+    info "Gerando segredos do Authelia..."
+    # shellcheck disable=SC2034  # lidas por k8s_secret_from_vars (indireção ${!var})
+    AUTHELIA_SESSION_SECRET="$(openssl rand -hex 64)"
+    # shellcheck disable=SC2034  # idem
+    AUTHELIA_STORAGE_ENCRYPTION_KEY="$(openssl rand -hex 64)"
+    # shellcheck disable=SC2034  # idem
+    AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET="$(openssl rand -hex 64)"
+    k8s_secret_from_vars authelia-secrets auth \
+        AUTHELIA_SESSION_SECRET AUTHELIA_STORAGE_ENCRYPTION_KEY \
+        AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET
+    log "Segredos do Authelia criados."
 fi
-[[ -z "$HASH" ]] && die "Falha ao gerar o hash da senha."
 
+# ── 4. Hash argon2 da senha (a senha entra por stdin, nunca por argv) ───────
+# hash_password_via_docker / hash_password_via_cluster imprimem só o hash.
+# O 'sh -c' lê a senha de stdin; o comando do contêiner não contém a senha.
+# shellcheck disable=SC2016  # $pw é expandido dentro do contêiner, de propósito
+HASH_CMD='read -r pw && authelia crypto hash generate argon2 --password "$pw"'
+
+hash_password_via_docker() {
+    printf '%s\n' "$ADMIN_PASS" \
+        | docker run --rm -i --entrypoint sh "$AUTHELIA_IMAGE" -c "$HASH_CMD" 2>/dev/null
+}
+
+hash_password_via_cluster() {
+    printf '%s\n' "$ADMIN_PASS" \
+        | k3s kubectl run "authelia-hash-$$" -n auth --rm -i --restart=Never \
+            --image="$AUTHELIA_IMAGE" --command -- sh -c "$HASH_CMD" 2>/dev/null
+}
+
+info "Gerando hash argon2 da senha..."
+HASH_OUTPUT=""
+if command -v docker &>/dev/null; then
+    HASH_OUTPUT="$(hash_password_via_docker)" || HASH_OUTPUT=""
+else
+    HASH_OUTPUT="$(hash_password_via_cluster)" || HASH_OUTPUT=""
+fi
+HASH="$(awk '/Digest:/ {print $2}' <<< "$HASH_OUTPUT")"
+[[ -n "$HASH" ]] || die "Falha ao gerar o hash da senha."
+
+# ── 5. Base de usuários (arquivo temporário, apagado após o uso) ───────────
 USERS_TMP="$(mktemp)"
+chmod 600 "$USERS_TMP"
 cat > "$USERS_TMP" <<EOF
 users:
   ${ADMIN_USER}:
@@ -66,40 +99,44 @@ users:
     groups:
       - 'admins'
 EOF
-$KC create secret generic authelia-users -n auth \
+k3s kubectl create secret generic authelia-users -n auth \
     --from-file=users_database.yml="$USERS_TMP" \
-    --dry-run=client -o yaml | $KC apply -f - >/dev/null
+    --dry-run=client -o yaml | k3s kubectl apply -f - >/dev/null
 shred -u "$USERS_TMP" 2>/dev/null || rm -f "$USERS_TMP"
 
-# ── 5. Manifests do Authelia ───────────────────────────────────────────────
+# ── 6. Manifests do Authelia ───────────────────────────────────────────────
 info "Aplicando o Authelia..."
 sed -e "s|__DOMAIN__|${COOKIE_DOMAIN}|g" -e "s|__AUTH_HOST__|${AUTH_HOST}|g" \
-    "${TEMPLATES_DIR}/k3s/authelia.yaml" | $KC apply -f -
-$KC -n auth rollout status deploy/authelia --timeout=120s >/dev/null 2>&1 || warn "Authelia ainda subindo — verifique com '$KC -n auth get pods'."
+    "${TEMPLATES_DIR}/k3s/authelia.yaml" | k3s kubectl apply -f - >/dev/null
+k3s kubectl -n auth rollout status deploy/authelia --timeout=180s >/dev/null 2>&1 \
+    || warn "Authelia ainda subindo — verifique com 'sudo k3s kubectl -n auth get pods'."
 
-# ── 6. Proteger o Grafana (opcional) ───────────────────────────────────────
+# ── 7. Proteger o Grafana (opcional) ───────────────────────────────────────
+# O Middleware precisa estar no MESMO namespace da rota (operacao).
 echo
 if confirm "Proteger o Grafana (etapa 26) com o Authelia agora?"; then
-    GIN="$($KC get ingress -n observability -o name 2>/dev/null | grep -i grafana | head -1)"
-    if [[ -n "$GIN" ]]; then
-        $KC annotate -n observability "$GIN" \
-            traefik.ingress.kubernetes.io/router.middlewares=auth-authelia@kubernetescrd --overwrite \
-            && log "Grafana agora exige login no Authelia."
+    if k3s kubectl get ingressroute grafana -n "$PLATFORM_NAMESPACE" &>/dev/null; then
+        sed "s|__NAMESPACE__|${PLATFORM_NAMESPACE}|g" "${TEMPLATES_DIR}/k3s/authelia-middleware.yaml" \
+            | k3s kubectl apply -f - >/dev/null
+        k3s kubectl patch ingressroute grafana -n "$PLATFORM_NAMESPACE" --type=json \
+            -p='[{"op":"add","path":"/spec/routes/0/middlewares","value":[{"name":"authelia"}]}]' >/dev/null
+        log "Grafana agora exige login no Authelia (2FA)."
     else
-        warn "Ingress do Grafana não encontrado (rode a etapa 26)."
+        warn "IngressRoute do Grafana não encontrado em ${PLATFORM_NAMESPACE} (rode a etapa 26)."
     fi
 fi
 
-# ── 7. Resumo ──────────────────────────────────────────────────────────────
+# ── 8. Resumo ──────────────────────────────────────────────────────────────
 echo
 echo -e "${BOLD}${GREEN}══ 2FA/SSO no k3s pronto ══${RESET}"
 echo -e "  Portal: ${CYAN}https://${AUTH_HOST}${RESET}   Usuário: ${CYAN}${ADMIN_USER}${RESET}"
 echo
-echo -e "${BOLD}Proteger qualquer Ingress com 2FA${RESET} — adicione a anotação:"
-echo -e "  ${CYAN}traefik.ingress.kubernetes.io/router.middlewares: auth-authelia@kubernetescrd${RESET}"
+echo -e "${BOLD}Proteger um serviço com 2FA:${RESET} no IngressRoute dele, em ${CYAN}spec.routes[]${RESET}:"
+echo -e "  ${CYAN}middlewares:${RESET}"
+echo -e "  ${CYAN}  - name: authelia${RESET}      (o Middleware precisa estar no mesmo namespace)"
 echo
 warn "Aponte o DNS de ${AUTH_HOST} para o IP da VPS."
-warn "Sem SMTP, o link de cadastro do 2FA fica no arquivo /data/notification.txt do pod:"
-warn "  $KC -n auth exec deploy/authelia -- cat /data/notification.txt"
+warn "Sem SMTP, o link de cadastro do 2FA fica no pod (arquivo de notificação):"
+warn "  sudo k3s kubectl -n auth exec deploy/authelia -- cat /data/notification.txt"
 
 step_done "2FA/SSO no k3s (Authelia, portal: ${AUTH_HOST})"
