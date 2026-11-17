@@ -30,18 +30,23 @@ ensure_namespace() {
         | k3s kubectl apply -f - >/dev/null
 }
 
-# k8s_secret_from_vars <nome> <namespace> VAR1 [VAR2...]
-# Cria/atualiza um Secret genérico com as variáveis indicadas. Os valores vão
-# para um arquivo temporário 600 (--from-env-file), e não para a linha de
-# comando — argv fica visível a outros processos via 'ps'. O arquivo é apagado
-# ao final, com ou sem erro.
+# k8s_secret_from_vars <nome> <namespace> SPEC [SPEC...]
+# SPEC é VARIAVEL (a chave do Secret tem o mesmo nome) ou CHAVE=VARIAVEL (para
+# chaves com hífen, como 'admin-password'). Os valores vão para um arquivo
+# temporário 600 (--from-env-file), e não para a linha de comando — argv fica
+# visível a outros processos via 'ps'. O arquivo é apagado ao final, com ou sem erro.
 k8s_secret_from_vars() {
-    local name="$1" ns="$2" var envfile rc
+    local name="$1" ns="$2" spec key var envfile rc
     shift 2
     envfile="$(mktemp)"
     chmod 600 "$envfile"
-    for var in "$@"; do
-        printf '%s=%s\n' "$var" "${!var}" >> "$envfile"
+    for spec in "$@"; do
+        if [[ "$spec" == *=* ]]; then
+            key="${spec%%=*}"; var="${spec#*=}"
+        else
+            key="$spec"; var="$spec"
+        fi
+        printf '%s=%s\n' "$key" "${!var}" >> "$envfile"
     done
     k3s kubectl create secret generic "$name" -n "$ns" \
         --from-env-file="$envfile" --dry-run=client -o yaml \

@@ -1,20 +1,20 @@
 # Values do chart kube-prometheus-stack (Prometheus + Grafana + Alertmanager +
 # node-exporter + kube-state-metrics) para o k3s. A etapa 26 substitui
-# __GRAFANA_HOST__; a senha do Grafana e o webhook de alerta entram por --set /
-# append no momento da instalação.
+# __GRAFANA_HOST__ e acrescenta a seção 'alertmanager' (destinos de alerta).
+#
+# Nenhum segredo fica aqui:
+#   - senha do administrador do Grafana: Secret 'grafana-admin' (existingSecret)
+#   - token/URL de alerta: Secret 'alertmanager-secrets', montado no Alertmanager
+# O Grafana é exposto por IngressRoute do Traefik (templates/k3s/grafana-ingressroute.yaml),
+# por isso o Ingress do próprio chart fica desligado.
 
 grafana:
   ingress:
-    enabled: true
-    ingressClassName: traefik
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
-    hosts:
-      - __GRAFANA_HOST__
-    tls:
-      - hosts:
-          - __GRAFANA_HOST__
-        secretName: grafana-tls
+    enabled: false
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   grafana.ini:
     server:
       root_url: https://__GRAFANA_HOST__

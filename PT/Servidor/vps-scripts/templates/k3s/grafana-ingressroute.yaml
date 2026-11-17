@@ -1,0 +1,20 @@
+# IngressRoute do Grafana (Traefik do k3s) — gerado pela etapa 26, no namespace operacao.
+# Substitua __GRAFANA_HOST__. A etapa 27 acrescenta o middleware 'authelia' (2FA) a esta rota.
+# O Service 'monitoring-grafana' é criado pelo chart (release 'monitoring').
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana
+  namespace: operacao
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`__GRAFANA_HOST__`)
+      services:
+        - name: monitoring-grafana
+          port: 80
+  tls:
+    certResolver: letsencrypt
