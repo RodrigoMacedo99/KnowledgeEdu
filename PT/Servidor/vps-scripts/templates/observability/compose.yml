@@ -42,6 +42,8 @@ services:
       - --config.file=/etc/alertmanager/alertmanager.yml
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # Token do Telegram e URL do webhook (arquivos 400, dono 65534 — etapa 19).
+      - ./secrets:/etc/alertmanager/secrets:ro
       - alertmanager-data:/alertmanager
     networks:
       - observability

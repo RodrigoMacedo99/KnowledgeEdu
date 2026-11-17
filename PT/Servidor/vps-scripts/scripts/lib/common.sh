@@ -156,3 +156,22 @@ init_log() {
         CURRENT_STEP_NUM=""
     fi
 }
+
+# ── ACL para contêineres não-root ──────────────────────────────────────────
+# grant_container_read <uid> <arquivo> <diretório-raiz>
+# Dá ao UID do contêiner acesso MÍNIMO: 'x' em cada diretório entre o arquivo e a
+# raiz (sem listar nem escrever) e 'r' só no arquivo. Não se usa chmod 755: isso
+# abriria a árvore inteira para todos os usuários do host.
+grant_container_read() {
+    local uid="$1" file="$2" stop="$3" dir
+    command -v setfacl &>/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y acl >/dev/null \
+        || die "Falha ao instalar o pacote 'acl' (necessário para setfacl)."
+    dir="$(dirname "$file")"
+    while true; do
+        setfacl -m "u:${uid}:x" "$dir" || die "setfacl falhou em ${dir}."
+        [[ "$dir" == "$stop" ]] && break
+        [[ "$dir" == "/" ]] && die "${file} não está dentro de ${stop}."
+        dir="$(dirname "$dir")"
+    done
+    setfacl -m "u:${uid}:r" "$file" || die "setfacl falhou em ${file}."
+}
