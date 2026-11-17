@@ -1,0 +1,21 @@
+# Middleware de 2FA do Authelia (forward-auth do Traefik), um por namespace.
+#
+# Um IngressRoute só pode referenciar Middleware do MESMO namespace, a menos que o
+# Traefik seja configurado com allowCrossNamespace (não é o caso aqui). Por isso o
+# Middleware é copiado para cada namespace que exige 2FA. Substitua __NAMESPACE__.
+# Gerado pelas etapas 27 (Grafana) e 29 (serviços de projeto).
+
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia
+  namespace: __NAMESPACE__
+spec:
+  forwardAuth:
+    address: 'http://authelia.auth.svc.cluster.local:9091/api/authz/forward-auth'
+    trustForwardHeader: true
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
+      - Remote-Name
+      - Remote-Email

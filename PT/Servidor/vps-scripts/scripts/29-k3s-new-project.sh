@@ -1,36 +1,31 @@
 #!/bin/bash
 # Seção 29 — Adicionar um serviço no k3s (equivalente k8s da etapa 15)
 #
-# No k3s um serviço é descrito por manifests (Deployment + Service + Ingress),
-# não por compose. Aqui você informa cada container público (imagem de registry,
-# porta e domínio) e o script gera e aplica os manifests, com HTTPS automático
-# (cert-manager) e, opcionalmente, 2FA (middleware do Authelia da etapa 27).
+# Gera os manifests de um serviço em /opt/apps/<servico>/k3s/: Namespace,
+# Deployment (com probes e requests/limits), Service e IngressRoute do Traefik
+# (HTTPS via Let's Encrypt, etapa 25) e, se pedido, o Middleware do Authelia
+# (2FA, etapa 27). O script NÃO aplica nada no cluster: você revisa os arquivos
+# e aplica com  kubectl apply -k /opt/apps/<servico>/k3s
 #
-# As imagens vêm de um REGISTRY (ex.: ghcr.io/usuario/app:tag) — no k8s não se
-# faz build no host; o build/push é papel do CI (etapa 17 adaptada, ou manual).
+# As imagens vêm de um REGISTRY. Exige tag fixa (nunca 'latest') ou digest.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/k3s.sh"
+TEMPLATES_DIR="$(cd "$SCRIPT_DIR/../templates" && pwd)"
 
 require_root
 init_log "29-k3s-new-project"
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-KC="k3s kubectl"
 
 title "29. Adicionar serviço no k3s (monorepo)"
 
 command -v k3s &>/dev/null || die "k3s não instalado — rode a etapa 25 primeiro."
 
-prompt SERVICE "Nome do serviço (vira o namespace; minúsculas/dígitos/-)" ""
-[[ "$SERVICE" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || die "Nome inválido (RFC1123): use minúsculas, dígitos e '-'."
+prompt SERVICE "Nome do serviço = namespace (previstos: ${PROJECT_NAMESPACES[*]})" ""
+is_project_namespace "$SERVICE" || die "'${SERVICE}' não é um namespace previsto para projetos."
 
 prompt_optional REPO "URL do monorepo (clonado em /opt/apps/${SERVICE}/app p/ referência) — vazio p/ pular" ""
 
-# ── Namespace ──────────────────────────────────────────────────────────────
-$KC create namespace "$SERVICE" --dry-run=client -o yaml | $KC apply -f - >/dev/null
-log "Namespace '${SERVICE}' pronto."
-
-# ── Clone de referência (opcional) ─────────────────────────────────────────
 MANIFEST_DIR="/opt/apps/${SERVICE}/k3s"
 mkdir -p "$MANIFEST_DIR"
 if [[ -n "$REPO" && ! -d "/opt/apps/${SERVICE}/app" ]]; then
@@ -38,113 +33,166 @@ if [[ -n "$REPO" && ! -d "/opt/apps/${SERVICE}/app" ]]; then
     git clone "$REPO" "/opt/apps/${SERVICE}/app" || warn "Falha ao clonar — siga sem o clone."
 fi
 
-# ── 2FA disponível? ────────────────────────────────────────────────────────
+# Leitura apenas: detecta se o Authelia (etapa 27) existe para oferecer o 2FA.
 HAS_AUTHELIA="n"
-$KC get middleware authelia -n auth &>/dev/null && HAS_AUTHELIA="y"
-HAS_ISSUER="n"
-$KC get clusterissuer letsencrypt &>/dev/null && HAS_ISSUER="y"
-[[ "$HAS_ISSUER" == "n" ]] && warn "ClusterIssuer 'letsencrypt' ausente — o HTTPS não será emitido (rode a etapa 25)."
+k3s kubectl get deploy authelia -n auth &>/dev/null && HAS_AUTHELIA="y"
 
-# ── Loop dos containers públicos ───────────────────────────────────────────
-count=0
-while true; do
-    echo
-    prompt_optional CNAME "Nome do container/app (ex: web, api) — vazio p/ terminar" ""
-    [[ -z "$CNAME" ]] && break
-    [[ "$CNAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || { warn "Nome inválido (RFC1123)."; continue; }
-    prompt IMAGE "Imagem do registry (ex: ghcr.io/usuario/${SERVICE}-${CNAME}:latest)" ""
-    prompt CPORT "Porta que o container escuta" "3000"
-    prompt CDOMAIN "Domínio público deste container" "${CNAME}.exemplo.com"
+# validate_image <imagem> — aceita tag fixa ou digest; rejeita ausência de tag e 'latest'.
+validate_image() {
+    local image="$1" last tag
+    [[ "$image" == *@sha256:* ]] && return 0
+    last="${image##*/}"
+    [[ "$last" == *:* ]] || return 1
+    tag="${last##*:}"
+    [[ -n "$tag" && "$tag" != "latest" ]]
+}
 
-    # Monta o bloco de anotações só com o que existir (evita 'annotations:' vazio).
-    ann_lines=()
-    [[ "$HAS_ISSUER" == "y" ]] && ann_lines+=("cert-manager.io/cluster-issuer: letsencrypt")
-    if [[ "$HAS_AUTHELIA" == "y" ]] && confirm "Exigir 2FA (Authelia) neste serviço?"; then
-        ann_lines+=("traefik.ingress.kubernetes.io/router.middlewares: auth-authelia@kubernetescrd")
+# write_container_manifest <arquivo> <nome> <imagem> <porta> <health> <domínio> <2fa y|n>
+write_container_manifest() {
+    local file="$1" cname="$2" image="$3" cport="$4" health="$5" domain="$6" use_2fa="$7"
+    local middlewares=""
+    if [[ "$use_2fa" == "y" ]]; then
+        middlewares="      middlewares:
+        - name: authelia"
     fi
-    META_ANN=""
-    if [[ ${#ann_lines[@]} -gt 0 ]]; then
-        META_ANN="  annotations:"$'\n'
-        for a in "${ann_lines[@]}"; do META_ANN+="    ${a}"$'\n'; done
-    fi
-
-    MF="${MANIFEST_DIR}/${CNAME}.yaml"
-    cat > "$MF" <<EOF
----
+    cat > "$file" <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${CNAME}
+  name: ${cname}
   namespace: ${SERVICE}
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: ${CNAME} }
+    matchLabels: { app: ${cname} }
   template:
     metadata:
-      labels: { app: ${CNAME} }
+      labels: { app: ${cname} }
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       containers:
-        - name: ${CNAME}
-          image: ${IMAGE}
+        - name: ${cname}
+          image: ${image}
           ports:
-            - containerPort: ${CPORT}
+            - containerPort: ${cport}
+          readinessProbe:
+            httpGet: { path: ${health}, port: ${cport} }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: ${health}, port: ${cport} }
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests: { cpu: "50m", memory: "64Mi" }
             limits:   { cpu: "1", memory: "512Mi" }
           securityContext:
             allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${CNAME}
+  name: ${cname}
   namespace: ${SERVICE}
 spec:
-  selector: { app: ${CNAME} }
+  selector: { app: ${cname} }
   ports:
     - port: 80
-      targetPort: ${CPORT}
+      targetPort: ${cport}
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
 metadata:
-  name: ${CNAME}
+  name: ${cname}
   namespace: ${SERVICE}
-  annotations:
-${ISSUER_ANN}
-${MW}
 spec:
-  ingressClassName: traefik
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(\`${domain}\`)
+${middlewares}
+      services:
+        - name: ${cname}
+          port: 80
   tls:
-    - hosts: ["${CDOMAIN}"]
-      secretName: ${CNAME}-tls
-  rules:
-    - host: ${CDOMAIN}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: ${CNAME}
-                port: { number: 80 }
+    certResolver: ${ACME_RESOLVER}
 EOF
-    # Remove linhas de anotação vazias (quando não há issuer/middleware).
-    sed -i '/^$/d' "$MF"
-    $KC apply -f "$MF" && log "Aplicado: ${CNAME} → https://${CDOMAIN}" || warn "Falha ao aplicar ${CNAME}."
+}
+
+write_namespace_manifest() {
+    cat > "${MANIFEST_DIR}/namespace.yaml" <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${SERVICE}
+EOF
+}
+
+# write_kustomization <recursos...> — lista os arquivos gerados para 'kubectl apply -k'.
+write_kustomization() {
+    {
+        echo "apiVersion: kustomize.config.k8s.io/v1beta1"
+        echo "kind: Kustomization"
+        echo "resources:"
+        printf '  - %s\n' "$@"
+    } > "${MANIFEST_DIR}/kustomization.yaml"
+}
+
+# ── Loop dos containers públicos ───────────────────────────────────────────
+count=0
+resources=("namespace.yaml")
+need_middleware="n"
+while true; do
+    echo
+    prompt_optional CNAME "Nome do container/app (ex: web, api) — vazio p/ terminar" ""
+    [[ -z "$CNAME" ]] && break
+    [[ "$CNAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || { warn "Nome inválido (RFC1123)."; continue; }
+    while true; do
+        prompt IMAGE "Imagem com tag fixa (ex: ghcr.io/usuario/${SERVICE}-${CNAME}:1.4.2)" ""
+        validate_image "$IMAGE" && break
+        warn "Imagem sem tag ou com 'latest' — informe uma versão fixa."
+    done
+    while true; do
+        prompt CPORT "Porta que o container escuta" "3000"
+        [[ "$CPORT" =~ ^[0-9]{1,5}$ ]] && (( CPORT >= 1 && CPORT <= 65535 )) && break
+        warn "Porta inválida (1–65535)."
+    done
+    prompt HEALTH_PATH "Rota de health check do container" "/health"
+    prompt CDOMAIN "Domínio público deste container" "${CNAME}.exemplo.com"
+
+    USE_2FA="n"
+    if [[ "$HAS_AUTHELIA" == "y" ]] && confirm "Exigir 2FA (Authelia) neste serviço?"; then
+        USE_2FA="y"
+        need_middleware="y"
+    fi
+
+    write_container_manifest "${MANIFEST_DIR}/${CNAME}.yaml" "$CNAME" "$IMAGE" "$CPORT" "$HEALTH_PATH" "$CDOMAIN" "$USE_2FA"
+    resources+=("${CNAME}.yaml")
     count=$((count+1))
 done
+
+write_namespace_manifest
+if [[ "$need_middleware" == "y" ]]; then
+    sed "s|__NAMESPACE__|${SERVICE}|" "${TEMPLATES_DIR}/k3s/authelia-middleware.yaml" \
+        > "${MANIFEST_DIR}/authelia-middleware.yaml"
+    resources+=("authelia-middleware.yaml")
+fi
+write_kustomization "${resources[@]}"
 
 chown -R root:root "$MANIFEST_DIR" 2>/dev/null || true
 
 echo
-echo -e "${BOLD}${GREEN}══ Serviço '${SERVICE}' no k3s ══${RESET}"
-echo -e "  Manifests: ${CYAN}${MANIFEST_DIR}/${RESET}   Containers públicos: ${CYAN}${count}${RESET}"
-echo -e "  Acompanhe: ${CYAN}sudo k3s kubectl get pods,ingress -n ${SERVICE}${RESET}"
+echo -e "${BOLD}${GREEN}══ Manifests de '${SERVICE}' gerados (nada foi aplicado) ══${RESET}"
+echo -e "  Diretório: ${CYAN}${MANIFEST_DIR}/${RESET}   Containers públicos: ${CYAN}${count}${RESET}"
+echo -e "  Revise os arquivos e aplique com: ${CYAN}sudo k3s kubectl apply -k ${MANIFEST_DIR}${RESET}"
 echo
-warn "Aponte o DNS de cada domínio para a VPS para o cert-manager emitir o HTTPS."
-warn "Imagens privadas exigem um imagePullSecret no namespace (kubectl create secret docker-registry)."
+warn "Aponte o DNS de cada domínio para a VPS: o Traefik emite o HTTPS no primeiro acesso."
+warn "Imagens privadas exigem um imagePullSecret no namespace (crie-o à parte, sem colar o token no terminal)."
+warn "runAsNonRoot exige imagem que não rode como root — ajuste a imagem se o pod não subir."
 warn "O banco de dados no k8s (StatefulSet/operador) é um passo à parte — mantenha-o só na rede interna."
 
-step_done "Serviço ${SERVICE} no k3s (${count} container(es) público(s))"
+step_done "Manifests do serviço ${SERVICE} no k3s (${count} container(es) público(s), não aplicados)"
