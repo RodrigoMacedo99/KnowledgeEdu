@@ -1,0 +1,96 @@
+# Backup diário do k3s como CronJob — gerado pela etapa 22 (namespace operacao).
+# Substitua __BACKUP_SCHEDULE__ (ex.: "0 3 * * *"). Config e script vêm dos ConfigMaps
+# backup-config e backup-script, criados pela etapa 22.
+#
+# A ClusterRole só ganha efeito dentro de cada namespace de projeto, por meio de um
+# RoleBinding criado pela etapa 22 (não há permissão de cluster inteiro).
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-operator
+  namespace: operacao
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-dumper
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes", "middlewares"]
+    verbs: ["get", "list"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-archives
+  namespace: operacao
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup
+  namespace: operacao
+spec:
+  schedule: "__BACKUP_SCHEDULE__"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: backup-operator
+          restartPolicy: Never
+          securityContext:
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: backup
+              # Tag fixa, nunca 'latest'. Ferramentas (bash, age, kubectl) vêm dos
+              # repositórios assinados do Alpine. Confirme as versões na primeira execução.
+              image: alpine:3.22
+              command: ["/bin/sh", "-c"]
+              args:
+                - apk add --no-cache bash age kubectl >/dev/null && exec bash /scripts/backup.sh
+              env:
+                - name: AGE_RECIPIENT
+                  valueFrom: { configMapKeyRef: { name: backup-config, key: AGE_RECIPIENT } }
+                - name: RETENTION_DAYS
+                  valueFrom: { configMapKeyRef: { name: backup-config, key: RETENTION_DAYS } }
+                - name: NAMESPACES
+                  valueFrom: { configMapKeyRef: { name: backup-config, key: NAMESPACES } }
+              volumeMounts:
+                - { name: script, mountPath: /scripts, readOnly: true }
+                - { name: work, mountPath: /work }
+                - { name: archives, mountPath: /backups }
+              resources:
+                requests: { cpu: "100m", memory: "128Mi" }
+                limits: { cpu: "1", memory: "512Mi" }
+              securityContext:
+                allowPrivilegeEscalation: false
+          volumes:
+            - name: script
+              configMap: { name: backup-script, defaultMode: 0555 }
+            - name: work
+              emptyDir: { medium: Memory, sizeLimit: 2Gi }
+            - name: archives
+              persistentVolumeClaim: { claimName: backup-archives }
