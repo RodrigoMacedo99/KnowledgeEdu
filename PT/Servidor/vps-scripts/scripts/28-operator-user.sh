@@ -30,7 +30,7 @@ fi
 # ── 2. Senha (necessária para o sudo, já que o login é por chave) ──────────
 info "Defina a senha do $OP_USER (usada só para confirmar comandos sudo)."
 prompt_secret OP_PASS "Senha para $OP_USER"
-echo "${OP_USER}:${OP_PASS}" | chpasswd
+printf '%s:%s\n' "$OP_USER" "$OP_PASS" | chpasswd
 log "Senha definida."
 
 # ── 3. Grupos ──────────────────────────────────────────────────────────────
