@@ -163,37 +163,37 @@ else
 fi
 
 # ── 8. Chave SSH restrita por ambiente ─────────────────────────────────────
-setup_deploy_key() {
-    local env_name="$1" deploy_script="$2"
-    local key_path="/home/${VPS_USER}/.ssh/deploy_${PROJECT_NAME}_${env_name}"
+# A chave PRIVADA de deploy é gerada na máquina do operador e cadastrada só como
+# secret do GitHub: o servidor nunca a vê nem a imprime. Aqui entra apenas a
+# chave PÚBLICA, com 'command=' fixo — quem a usar executa só o script de deploy.
+DEPLOY_PUBKEY_PATTERN='^ssh-(ed25519|rsa) [A-Za-z0-9+/=]+'
 
-    if [[ -f "${key_path}.pub" ]]; then
-        already_done "Chave de deploy (${env_name})" >&2
-    else
-        info "Gerando chave ed25519 para o GitHub Actions (${env_name})..." >&2
-        install -d -m 700 -o "$VPS_USER" -g "$VPS_USER" "/home/${VPS_USER}/.ssh"
-        sudo -u "$VPS_USER" ssh-keygen -t ed25519 -C "github-actions-${PROJECT_NAME}-${env_name}" -f "$key_path" -N ""
-    fi
-
+authorize_deploy_key() {
+    local env_name="$1" deploy_script="$2" pubkey=""
     local auth_keys="/home/${VPS_USER}/.ssh/authorized_keys"
-    local key_line="command=\"${deploy_script}\",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-user-rc,no-pty $(cat "${key_path}.pub")"
-    touch "$auth_keys"
-    if grep -qF "${deploy_script}" "$auth_keys" 2>/dev/null; then
-        already_done "authorized_keys para ${deploy_script}" >&2
-    else
-        echo "$key_line" >> "$auth_keys"
-        chown "${VPS_USER}:${VPS_USER}" "$auth_keys"
-        chmod 600 "$auth_keys"
-        log "Chave restrita (${env_name}) adicionada." >&2
+
+    if grep -qF "command=\"${deploy_script}\"" "$auth_keys" 2>/dev/null; then
+        already_done "Chave de deploy (${env_name})"
+        return 0
     fi
-    echo "$key_path"
+
+    info "Gere o par de chaves NA SUA MÁQUINA (não na VPS):"
+    info "  ssh-keygen -t ed25519 -C github-actions-${PROJECT_NAME}-${env_name} -f deploy_${PROJECT_NAME}_${env_name} -N \"\""
+    prompt pubkey "Cole a CHAVE PÚBLICA (conteúdo de deploy_${PROJECT_NAME}_${env_name}.pub) do ambiente ${env_name}"
+    [[ "$pubkey" =~ $DEPLOY_PUBKEY_PATTERN ]] || die "Isso não parece uma chave pública SSH (ssh-ed25519 ... / ssh-rsa ...)."
+
+    install -d -m 700 -o "$VPS_USER" -g "$VPS_USER" "/home/${VPS_USER}/.ssh"
+    touch "$auth_keys"
+    echo "command=\"${deploy_script}\",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-user-rc,no-pty ${pubkey}" >> "$auth_keys"
+    chown "${VPS_USER}:${VPS_USER}" "$auth_keys"
+    chmod 600 "$auth_keys"
+    log "Chave pública restrita (${env_name}) autorizada."
 }
 
 DEPLOY_SCRIPT_PRODUCTION="${PROJECT_DIR}/deploy-production.sh"
-DEPLOY_KEY_PRODUCTION=$(setup_deploy_key "production" "$DEPLOY_SCRIPT_PRODUCTION")
+authorize_deploy_key "production" "$DEPLOY_SCRIPT_PRODUCTION"
 DEPLOY_SCRIPT_STAGING="${PROJECT_DIR}/deploy-staging.sh"
-DEPLOY_KEY_STAGING=""
-[[ "$STAGING_ENABLED" == "y" ]] && DEPLOY_KEY_STAGING=$(setup_deploy_key "staging" "$DEPLOY_SCRIPT_STAGING")
+[[ "$STAGING_ENABLED" == "y" ]] && authorize_deploy_key "staging" "$DEPLOY_SCRIPT_STAGING"
 
 # ── 9. Scripts de deploy (rolling, com override do Traefik) ────────────────
 write_deploy_script() {
@@ -325,7 +325,8 @@ ${INSTALL_STEP}
       - uses: gitleaks/gitleaks-action@v2
 ${INSTALL_STEP}
       - run: ${AUDIT_CMD}
-      - uses: aquasecurity/trivy-action@master
+      # SHA fixo, não tag: as tags do trivy-action foram reescritas em mar/2026 (CVE-2026-33634).
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           severity: CRITICAL,HIGH
@@ -351,7 +352,7 @@ cat <<EOF
       - uses: actions/checkout@v4
       - name: Build da imagem Docker
         run: docker build -t ${PROJECT_NAME}:ci -f ${DOCKERFILE_PATH:-Dockerfile} .
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${PROJECT_NAME}:ci
           severity: CRITICAL,HIGH
@@ -368,13 +369,14 @@ cat <<EOF
     environment: staging
     steps:
       - name: Deploy (staging)
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: \${{ secrets.VPS_HOST }}
           username: \${{ secrets.VPS_USER }}
           key: \${{ secrets.VPS_SSH_KEY }}
           port: \${{ secrets.VPS_PORT }}
-          script: exit
+          # A chave tem 'command=' fixo no servidor: executa sempre ${DEPLOY_SCRIPT_STAGING}.
+          script: ${DEPLOY_SCRIPT_STAGING}
 EOF
 fi
 
@@ -387,13 +389,14 @@ cat <<EOF
     environment: production
     steps:
       - name: Deploy (produção)
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: \${{ secrets.VPS_HOST }}
           username: \${{ secrets.VPS_USER }}
           key: \${{ secrets.VPS_SSH_KEY }}
           port: \${{ secrets.VPS_PORT }}
-          script: exit
+          # A chave tem 'command=' fixo no servidor: executa sempre ${DEPLOY_SCRIPT_PRODUCTION}.
+          script: ${DEPLOY_SCRIPT_PRODUCTION}
 EOF
 } > "$WORKFLOW_FILE"
 
@@ -414,17 +417,16 @@ echo -e "  Stack:    ${CYAN}${STACK}${RESET}   Deploy: ${CYAN}rolling${RESET}   
 echo
 echo -e "${BOLD}Crie os GitHub Environments${RESET} (Settings → Environments) com os secrets:"
 echo -e "  ${YELLOW}production${RESET} (ative 'Required reviewers' se quiser aprovação):"
-echo -e "    VPS_HOST=${VPS_HOST}  VPS_USER=${VPS_USER}  VPS_PORT=${VPS_PORT}  VPS_SSH_KEY=(chave privada abaixo)"
-echo
-cat "$DEPLOY_KEY_PRODUCTION"
+echo -e "    VPS_HOST=${VPS_HOST}  VPS_USER=${VPS_USER}  VPS_PORT=${VPS_PORT}"
+echo -e "    VPS_SSH_KEY = conteúdo da CHAVE PRIVADA deploy_${PROJECT_NAME}_production (a que você gerou na sua máquina)"
 echo
 if [[ "$STAGING_ENABLED" == "y" ]]; then
     echo -e "  ${YELLOW}staging${RESET}:"
-    echo -e "    VPS_HOST=${VPS_HOST}  VPS_USER=${VPS_USER}  VPS_PORT=${VPS_PORT}  VPS_SSH_KEY=(chave privada abaixo)"
-    echo
-    cat "$DEPLOY_KEY_STAGING"
+    echo -e "    VPS_HOST=${VPS_HOST}  VPS_USER=${VPS_USER}  VPS_PORT=${VPS_PORT}"
+    echo -e "    VPS_SSH_KEY = conteúdo da CHAVE PRIVADA deploy_${PROJECT_NAME}_staging"
     echo
 fi
+warn "A chave privada NÃO é exibida nem guardada na VPS. Não a cole em arquivos versionados."
 [[ "$REQUIRE_APPROVAL" == "y" ]] && warn "Ative 'Required reviewers' no Environment 'production'."
 warn "Ative branch protection em '${MAIN_BRANCH}' (CI obrigatório, sem push direto)."
 
