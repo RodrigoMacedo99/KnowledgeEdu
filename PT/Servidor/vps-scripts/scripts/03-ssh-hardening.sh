@@ -9,7 +9,7 @@ init_log "03-ssh-hardening"
 
 title "3. Hardening do SSH"
 
-prompt SSH_PORT    "Porta SSH (recomendado: fora do padrão 22)" "2222"
+prompt SSH_PORT    "Porta SSH (decidido pelo projeto: 22, liberada só para a equipe)" "22"
 prompt ALLOW_USER  "Usuário permitido via SSH" "admin"
 
 SSHD_CONFIG="/etc/ssh/sshd_config"

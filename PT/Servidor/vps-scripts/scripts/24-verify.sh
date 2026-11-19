@@ -77,7 +77,7 @@ if command -v k3s &>/dev/null; then
     else
         wr "Namespace ${PLATFORM_NAMESPACE} não existe (etapas 25 e 26)"
     fi
-    k3s kubectl get deploy authelia -n auth &>/dev/null && ok "Authelia no k3s" || wr "Authelia no k3s não instalado (etapa 27)"
+    k3s kubectl get deploy authelia -n operacao &>/dev/null && ok "Authelia no k3s" || wr "Authelia no k3s não instalado (etapa 27)"
 fi
 
 # ── Portas públicas (qualquer runtime) ──────────────────────────────────────

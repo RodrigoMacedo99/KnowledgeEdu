@@ -9,7 +9,8 @@ init_log "05-ufw"
 
 title "5. Configuração do Firewall (UFW)"
 
-prompt SSH_PORT "Porta SSH configurada" "2222"
+prompt SSH_PORT "Porta SSH configurada" "$(get_config SSH_PORT 22)"
+save_config SSH_PORT "$SSH_PORT"
 # SSH só para os IPs da equipe (decisão do projeto): nunca aberto ao mundo.
 prompt TEAM_IPS "IP(s) da equipe com acesso SSH (IPv4 ou CIDR, separados por espaço)" "$(get_config TEAM_IPS)"
 TEAM_IP_PATTERN='^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$'

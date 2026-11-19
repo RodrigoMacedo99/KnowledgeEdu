@@ -150,7 +150,7 @@ prompt HEALTHCHECK_PATH "Rota de health check (via domínio público)" "/health"
 # ── 6. Conexão com a VPS ───────────────────────────────────────────────────
 prompt VPS_USER "Usuário SSH usado no deploy (grupos webapps e docker)" "admin"
 prompt VPS_HOST "IP ou domínio da VPS" ""
-prompt VPS_PORT "Porta SSH da VPS" "2222"
+prompt VPS_PORT "Porta SSH da VPS" "22"
 id "$VPS_USER" &>/dev/null || die "Usuário '${VPS_USER}' não existe nesta VPS."
 
 # ── 7. Permissões de grupo para o deploy ───────────────────────────────────

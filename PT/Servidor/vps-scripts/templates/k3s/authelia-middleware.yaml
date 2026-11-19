@@ -12,7 +12,7 @@ metadata:
   namespace: __NAMESPACE__
 spec:
   forwardAuth:
-    address: 'http://authelia.auth.svc.cluster.local:9091/api/authz/forward-auth'
+    address: 'http://authelia.operacao.svc.cluster.local:9091/api/authz/forward-auth'
     trustForwardHeader: true
     authResponseHeaders:
       - Remote-User

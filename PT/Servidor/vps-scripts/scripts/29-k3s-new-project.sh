@@ -35,7 +35,7 @@ fi
 
 # Leitura apenas: detecta se o Authelia (etapa 27) existe para oferecer o 2FA.
 HAS_AUTHELIA="n"
-k3s kubectl get deploy authelia -n auth &>/dev/null && HAS_AUTHELIA="y"
+k3s kubectl get deploy authelia -n operacao &>/dev/null && HAS_AUTHELIA="y"
 
 # validate_image <imagem> — aceita tag fixa ou digest; rejeita ausência de tag e 'latest'.
 validate_image() {

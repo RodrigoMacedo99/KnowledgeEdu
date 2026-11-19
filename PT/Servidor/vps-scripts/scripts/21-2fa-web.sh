@@ -23,6 +23,10 @@ SMTP_MAX_ATTEMPTS=3
 
 title "21. 2FA/SSO nos serviços web (Authelia)"
 
+# Versão Docker, substituída pela etapa 27 (Authelia no k3s). O projeto não usa
+# Docker. Não execute esta etapa: ela só existe para referência.
+die "Etapa 21 desativada: use a etapa 27 (2FA/SSO no k3s). O projeto não usa Docker."
+
 docker network inspect edge &>/dev/null || die "Rede 'edge' não existe — rode as etapas 8 e 9 primeiro."
 require_command docker
 
