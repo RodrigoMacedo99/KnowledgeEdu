@@ -1,7 +1,7 @@
 # Correções do toolkit de setup da VPS
 
-Branch: `fix/toolkit-vps-k3s` (a partir de `main`, não mesclada). Um commit por defeito,
-mensagens em português. Nada foi executado em servidor real.
+Branch: `fix/toolkit-vps-k3s`, já mesclada na `main` (mesmo commit, `91ff721`). Um commit por
+defeito, mensagens em português. Nada foi executado em servidor real.
 
 ## Como foi validado
 
@@ -99,3 +99,20 @@ alcançar binários reais (o `PATH` da sandbox não inclui mais `/usr/local/bin`
 
 `subir-canvas`, projetos pessoais do servidor de teste, migração SGOA/SIGMA, e qualquer
 manifest do k3s em `infra`.
+
+## Verificação de 19/11/2026
+
+Revisão dos blockers que estavam listados no T-57 contra o estado atual da `main`:
+
+| Script | Defeito listado | Situação |
+|---|---|---|
+| 17 | imprime chave privada | Corrigido: só instruções de `ssh-keygen`, sem impressão da chave |
+| 22 | gera chave privada no servidor | Corrigido: só orienta gerar a chave fora do servidor |
+| 26 | senha do Grafana na linha de comando | Corrigido: senha vai por arquivo temporário com permissão 600 |
+| 28 | copia kubeconfig de administrador | Corrigido: kubeconfig de leitura por ServiceAccount |
+| 29 | aborta por variável não definida | Não reproduzido: rodou até o fim, código 0, gerou manifests sem aplicar |
+
+O 29 foi executado num container Ubuntu 24.04 descartável, com `k3s` e `kubectl` simulados
+e respostas do prompt pela entrada padrão. Os passos que mexem no sistema (SSH, UFW,
+reinício automático, fail2ban, k3s real) não podem ser validados em container. Continuam sem
+teste em host real.
